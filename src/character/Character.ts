@@ -141,6 +141,11 @@ export class Character {
     this.shadow.scale.setScalar(Math.max(bx, bz) * 1.5);
   }
 
+  /** World position of a foot (uses last frame's world matrices). */
+  footWorldPosition(foot: 0 | 1, out: THREE.Vector3): THREE.Vector3 {
+    return this.feet[foot].getWorldPosition(out);
+  }
+
   /** speed: 0 = standing, 1 = normal walk. */
   update(dt: number, speed: number): void {
     this.time += dt;

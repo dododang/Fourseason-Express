@@ -7,6 +7,8 @@ import { setupDebugStats } from './systems/debugStats';
 import { Input } from './controls/input';
 import { ThirdPersonCamera } from './controls/ThirdPersonCamera';
 import { buildWinterScene, SPAWN } from './scenes/winter';
+import { Footprints } from './systems/footprints';
+import { Snowfall } from './systems/snowfall';
 
 const container = document.getElementById('app')!;
 
@@ -24,11 +26,23 @@ const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 200);
 
 // No dynamic lights: unlit materials only (per performance rules).
 const world = buildWinterScene(scene);
+const footprints = new Footprints();
+const snowfall = new Snowfall();
+scene.add(footprints.mesh, snowfall.points);
 
 // Player character with a random look on every visit.
 const player = new Character(randomLook());
 player.root.position.copy(SPAWN);
 scene.add(player.root);
+
+// Each step leaves a print in the snow (not on the wooden platform).
+const footPos = new THREE.Vector3();
+player.onStep = (foot) => {
+  if (!boarded) return;
+  player.footWorldPosition(foot, footPos);
+  if (world.heightAt(footPos.x, footPos.z) > 0) return;
+  footprints.add(footPos.x, footPos.z, player.root.rotation.y);
+};
 
 // Camera framing: close-up while choosing, third-person follow after boarding.
 const ENTRANCE_CAM = {
@@ -77,6 +91,7 @@ function resize() {
   const { clientWidth: w, clientHeight: h } = container;
   renderer.setSize(w, h);
   camera.aspect = w / h;
+  snowfall.setViewport(h, camera.fov, renderer.getPixelRatio());
   viewShift.copy(targetViewShift());
   applyViewShift();
 }
@@ -149,6 +164,8 @@ renderer.setAnimationLoop(() => {
   applyViewShift();
 
   player.update(dt, speed);
+  footprints.update(dt);
+  snowfall.update(dt, camera);
   if (OVERVIEW) {
     camera.clearViewOffset();
     camera.position.set(0, 140, 40);
