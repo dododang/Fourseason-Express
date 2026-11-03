@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#dfe7ef" />
+    <title>포시즌 열차</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #dfe7ef; }
+      #app { position: fixed; inset: 0; height: 100dvh; touch-action: none; }
+      canvas { display: block; }
+
+      /* Portrait only: phones turned sideways see a gentle notice instead. */
+      #rotate-notice {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 8px;
+        background: #dfe7ef;
+        color: #3d4656;
+        font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+        text-align: center;
+      }
+      #rotate-notice p { margin: 0; font-size: 16px; }
+      #rotate-notice small { font-size: 13px; color: #6b7587; }
+      @media (orientation: landscape) and (max-height: 500px) and (pointer: coarse) {
+        #rotate-notice { display: flex; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="rotate-notice">
+      <p>휴대폰을 세로로 돌려 주세요</p>
+      <small>세로 화면에서 편안하게 즐길 수 있어요</small>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
