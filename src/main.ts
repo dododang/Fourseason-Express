@@ -6,7 +6,8 @@ import { Entrance } from './ui/entrance';
 import { setupDebugStats } from './systems/debugStats';
 import { Input } from './controls/input';
 import { ThirdPersonCamera } from './controls/ThirdPersonCamera';
-import { buildWinterScene, SPAWN } from './scenes/winter';
+import { buildWinterScene } from './scenes/winter';
+import { buildTrainScene } from './scenes/train';
 import { Footprints } from './systems/footprints';
 import { Snowfall } from './systems/snowfall';
 import { WinterAudio } from './audio/WinterAudio';
@@ -26,10 +27,15 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 200);
 
 // No dynamic lights: unlit materials only (per performance rules).
-const world = buildWinterScene(scene);
+// Dev only: ?scene=train opens the train interior instead of the winter station.
+const params = new URLSearchParams(location.search);
+const inTrain = import.meta.env.DEV && params.get('scene') === 'train';
+const world = inTrain ? buildTrainScene(scene) : buildWinterScene(scene);
+const SPAWN = world.spawn;
 const footprints = new Footprints();
 const snowfall = new Snowfall();
-scene.add(footprints.mesh, snowfall.points);
+scene.add(footprints.mesh);
+if (world.snowfall) scene.add(snowfall.points);
 
 // Player character with a random look on every visit.
 const player = new Character(randomLook());
@@ -39,19 +45,19 @@ scene.add(player.root);
 const audio = new WinterAudio();
 let walkSpeed = 0;
 
-// Each step plays a footstep sound and leaves a print in the snow (not on the wooden platform).
+// Each step plays a footstep sound and leaves a print in the snow (not on wood).
 const footPos = new THREE.Vector3();
 player.onStep = (foot) => {
   if (!boarded) return;
   player.footWorldPosition(foot, footPos);
-  const onWood = world.heightAt(footPos.x, footPos.z) > 0;
+  const onWood = world.surfaceAt(footPos.x, footPos.z) === 'wood';
   audio.step(walkSpeed, onWood);
   if (!onWood) footprints.add(footPos.x, footPos.z, player.root.rotation.y);
 };
 
 // Camera framing: close-up while choosing, third-person follow after boarding.
 const ENTRANCE_CAM = {
-  pos: SPAWN.clone().add(new THREE.Vector3(0, 0.85, 3.0)),
+  pos: SPAWN.clone().add(new THREE.Vector3(Math.sin(world.viewYaw) * 3, 0.85, Math.cos(world.viewYaw) * 3)),
   target: SPAWN.clone().add(new THREE.Vector3(0, 0.52, 0)),
 };
 let boarded = false;
@@ -63,6 +69,8 @@ camera.lookAt(camTarget);
 
 const input = new Input(container);
 const followCam = new ThirdPersonCamera(camera);
+followCam.yaw = world.viewYaw;
+followCam.bounds = world.cameraBounds ?? null;
 
 const entrance = new Entrance({
   initial: player.look,
@@ -73,7 +81,7 @@ const entrance = new Entrance({
   onBoard: () => {
     boarded = true;
     input.enabled = true;
-    audio.start(); // inside the tap handler, so mobile browsers allow sound
+    audio.start(world.snowfall); // inside the tap handler, so mobile browsers allow sound
     followCam.begin(camTarget);
   },
 });
@@ -120,11 +128,13 @@ const PLAYER_RADIUS = 0.3;
 const tmpForward = new THREE.Vector3();
 const tmpRight = new THREE.Vector3();
 const moveDir = new THREE.Vector3();
-let facing = Math.PI; // after boarding the character turns its back to the camera
+let facing = world.viewYaw + Math.PI; // after boarding the character turns its back to the camera
 
 // Dev only: ?overview shows the whole layout from above.
-const OVERVIEW = import.meta.env.DEV && new URLSearchParams(location.search).has('overview');
+const OVERVIEW = import.meta.env.DEV && params.has('overview');
 if (OVERVIEW) scene.fog = null;
+// Dev only: ?cam=x,y,z,tx,ty,tz pins the camera (for screenshots).
+const PINNED = import.meta.env.DEV && params.get('cam')?.split(',').map(Number);
 
 const clock = new THREE.Clock();
 const frame = await setupDebugStats(renderer);
@@ -178,6 +188,7 @@ renderer.setAnimationLoop(() => {
 
   walkSpeed = speed;
   player.update(dt, speed);
+  world.update?.(dt);
   audio.update(dt);
   footprints.update(dt);
   snowfall.update(dt, camera);
@@ -185,6 +196,10 @@ renderer.setAnimationLoop(() => {
     camera.clearViewOffset();
     camera.position.set(0, 140, 40);
     camera.lookAt(0, 0, -4);
+  } else if (PINNED && PINNED.length === 6) {
+    camera.clearViewOffset();
+    camera.position.set(PINNED[0], PINNED[1], PINNED[2]);
+    camera.lookAt(PINNED[3], PINNED[4], PINNED[5]);
   }
   renderer.render(scene, camera);
   frame.end();

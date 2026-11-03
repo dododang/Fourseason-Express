@@ -13,6 +13,8 @@ export class ThirdPersonCamera {
   yaw = 0; // 0 = camera on +z looking toward -z
   pitch = 0.32;
   distance = 3.6;
+  /** Optional box the camera must stay inside (train interior walls). */
+  bounds: THREE.Box3 | null = null;
 
   private lookTarget = new THREE.Vector3();
   private desired = new THREE.Vector3();
@@ -58,6 +60,7 @@ export class ThirdPersonCamera {
       this.lookTarget.z + Math.cos(this.yaw) * cp * this.distance,
     );
     this.camera.position.lerp(this.desired, k);
+    if (this.bounds) this.camera.position.clamp(this.bounds.min, this.bounds.max);
     this.camera.lookAt(this.lookTarget);
   }
 }

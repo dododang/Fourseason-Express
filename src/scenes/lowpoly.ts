@@ -82,5 +82,19 @@ export function jitter(geo: THREE.BufferGeometry, amount: number, rand: () => nu
   return welded;
 }
 
+/** Painted box, positioned by its center. */
+export function box(w: number, h: number, d: number, x: number, y: number, z: number, color: string): THREE.BufferGeometry {
+  const g = new THREE.BoxGeometry(w, h, d);
+  g.translate(x, y, z);
+  return paint(g, color, { min: 0.72 });
+}
+
+/** Painted six-sided cylinder, positioned by its center. */
+export function cylinder(r: number, h: number, x: number, y: number, z: number, color: string): THREE.BufferGeometry {
+  const g = new THREE.CylinderGeometry(r, r, h, 6);
+  g.translate(x, y, z);
+  return paint(g, color, { min: 0.72 });
+}
+
 /** One material for every painted prop. */
 export const propMaterial = new THREE.MeshBasicMaterial({ vertexColors: true });

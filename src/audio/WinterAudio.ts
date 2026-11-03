@@ -29,6 +29,7 @@ export class WinterAudio {
   private lastGust = -1;
   private gustTimer = randomBetween(GUST_INTERVAL[0] * 0.5, GUST_INTERVAL[1] * 0.5);
   private started = false;
+  private ambienceOn = false;
 
   constructor() {
     // Go quiet while the tab or app is in the background.
@@ -36,9 +37,11 @@ export class WinterAudio {
   }
 
   /** Call from a user gesture (the "열차에 타기" tap) so mobile browsers allow audio. */
-  start(): void {
+  start(withAmbience = true): void {
     if (this.started) return;
     this.started = true;
+    this.ambienceOn = withAmbience;
+    if (!withAmbience) return;
     const id = this.ambience.play();
     this.ambience.fade(0, AMBIENCE_VOLUME, 4000, id);
   }
@@ -63,7 +66,7 @@ export class WinterAudio {
   }
 
   update(dt: number): void {
-    if (!this.started) return;
+    if (!this.ambienceOn) return;
     this.gustTimer -= dt;
     if (this.gustTimer > 0) return;
     this.gustTimer = randomBetween(GUST_INTERVAL[0], GUST_INTERVAL[1]);

@@ -1,7 +1,8 @@
 // Winter station: snowfield, small station platform, rails, pine trees, rocks and snow mounds.
 // Everything is code-built, unlit, and instanced where it repeats.
 import * as THREE from 'three';
-import { jitter, merge, paint, propMaterial, seededRandom } from './lowpoly';
+import { box, cylinder, jitter, merge, paint, propMaterial, seededRandom } from './lowpoly';
+import type { Zone } from './zone';
 
 // Palette
 const SKY_TOP = new THREE.Color('#9fbad6');
@@ -23,7 +24,7 @@ export const WORLD_RADIUS = 60;
 // Station layout (the player starts on the platform, the village lies toward -z).
 const PLATFORM = { minX: -4.5, maxX: 4.5, minZ: 0.2, maxZ: 2.8, height: 0.12 };
 const RAIL_Z = 4.1;
-export const SPAWN = new THREE.Vector3(0, PLATFORM.height, 1.4);
+const SPAWN = new THREE.Vector3(0, PLATFORM.height, 1.4);
 
 export interface Collider {
   x: number;
@@ -31,16 +32,7 @@ export interface Collider {
   r: number;
 }
 
-export interface WinterScene {
-  colliders: Collider[];
-  /** Ground height at a point (the platform is slightly raised). */
-  heightAt: (x: number, z: number) => number;
-  /** Keeps a position inside the walkable area and outside colliders. */
-  constrain: (p: THREE.Vector3, radius: number) => void;
-  dispose: () => void;
-}
-
-export function buildWinterScene(scene: THREE.Scene): WinterScene {
+export function buildWinterScene(scene: THREE.Scene): Zone {
   const rand = seededRandom(SEED);
   const disposables: { dispose: () => void }[] = [];
   const track = <T extends { dispose: () => void }>(d: T): T => {
@@ -83,17 +75,20 @@ export function buildWinterScene(scene: THREE.Scene): WinterScene {
   };
 
   return {
-    colliders,
+    spawn: SPAWN.clone(),
+    viewYaw: 0,
+    snowfall: true,
     heightAt,
+    surfaceAt: (x, z) => (heightAt(x, z) > 0 ? 'wood' : 'snow'),
     constrain,
     dispose: () => disposables.forEach((d) => d.dispose()),
   };
 }
 
-type Track = <T extends { dispose: () => void }>(d: T) => T;
+export type Track = <T extends { dispose: () => void }>(d: T) => T;
 
 // Sky dome with a vertical gradient baked into vertex colors.
-function createSky(track: Track): THREE.Mesh {
+export function createSky(track: Track): THREE.Mesh {
   const geo = track(new THREE.SphereGeometry(150, 16, 12));
   const pos = geo.attributes.position;
   const colors = new Float32Array(pos.count * 3);
@@ -109,7 +104,7 @@ function createSky(track: Track): THREE.Mesh {
 }
 
 // Ring of low-poly mountains on the horizon.
-function createMountains(track: Track, rand: () => number): THREE.InstancedMesh {
+export function createMountains(track: Track, rand: () => number): THREE.InstancedMesh {
   const geo = track(new THREE.ConeGeometry(1, 1, 5, 1).toNonIndexed());
   geo.computeVertexNormals();
   const normals = geo.attributes.normal;
@@ -166,18 +161,6 @@ function createGround(track: Track): THREE.Mesh {
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   return new THREE.Mesh(geo, track(new THREE.MeshBasicMaterial({ vertexColors: true })));
-}
-
-function box(w: number, h: number, d: number, x: number, y: number, z: number, color: string): THREE.BufferGeometry {
-  const g = new THREE.BoxGeometry(w, h, d);
-  g.translate(x, y, z);
-  return paint(g, color, { min: 0.72 });
-}
-
-function cylinder(r: number, h: number, x: number, y: number, z: number, color: string): THREE.BufferGeometry {
-  const g = new THREE.CylinderGeometry(r, r, h, 6);
-  g.translate(x, y, z);
-  return paint(g, color, { min: 0.72 });
 }
 
 // Platform deck, bench, sign and lamp posts merged into one mesh, plus the sign text and lamp glows.
@@ -267,7 +250,7 @@ function createStation(track: Track, colliders: Collider[]): THREE.Group {
   return group;
 }
 
-function radialTexture(inner: string, outer: string): THREE.CanvasTexture {
+export function radialTexture(inner: string, outer: string): THREE.CanvasTexture {
   const size = 64;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
@@ -304,7 +287,7 @@ function createRails(track: Track): THREE.Group {
 }
 
 // Pine tree: trunk, three tiers of foliage, each topped with a snow cap.
-function createPineGeometry(): THREE.BufferGeometry {
+export function createPineGeometry(): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   const trunk = new THREE.CylinderGeometry(0.11, 0.15, 0.6, 5);
   trunk.translate(0, 0.3, 0);
