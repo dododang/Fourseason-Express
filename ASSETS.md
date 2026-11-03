@@ -14,6 +14,7 @@
 | 배경음 나무 사이 바람 (`ambience.m4a`) | Wind in trees 1 | alppdcjr12 | https://freesound.org/people/alppdcjr12/sounds/662575/ |
 | 배경음 고요한 공기 (`ambience.m4a`) | Very Quiet Forest Ambience | Yoyodaman234 | https://freesound.org/people/Yoyodaman234/sounds/348829/ |
 | 배경음 겨울 숲 (`ambience.m4a`) | outdoor winter ambience birds light wind trees | lwdickens | https://freesound.org/people/lwdickens/sounds/260634/ |
+| 나무 플랫폼 발소리 (`wood.m4a`) | Hiking Boot Footsteps on Wooden Planks | Fission9 | https://freesound.org/people/Fission9/sounds/521589/ |
 | 가끔 스치는 바람 (`gusts.m4a`) | Howling Wind Ambience | DBlover | https://freesound.org/people/DBlover/sounds/405601/ |
 
 받아 두었지만 지금은 쓰지 않는 음원:

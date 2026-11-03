@@ -10,6 +10,7 @@ import { buildWinterScene, SPAWN } from './scenes/winter';
 import { Footprints } from './systems/footprints';
 import { Snowfall } from './systems/snowfall';
 import { WinterAudio } from './audio/WinterAudio';
+import { AdaptiveQuality } from './systems/adaptiveQuality';
 
 const container = document.getElementById('app')!;
 
@@ -19,7 +20,6 @@ for (const type of ['gesturestart', 'gesturechange', 'dblclick']) {
 }
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 container.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -102,6 +102,11 @@ function resize() {
   applyViewShift();
 }
 window.addEventListener('resize', resize);
+
+// Starts at min(devicePixelRatio, 2) and steps down only if the frame rate suffers.
+const quality = new AdaptiveQuality(renderer, (ratio) => {
+  snowfall.setViewport(container.clientHeight, camera.fov, ratio);
+});
 resize();
 
 /** Angle equivalent to `target` that is closest to `current`. */
@@ -125,7 +130,9 @@ const clock = new THREE.Clock();
 const frame = await setupDebugStats(renderer);
 renderer.setAnimationLoop(() => {
   frame.begin();
-  const dt = Math.min(clock.getDelta(), 0.1);
+  const rawDt = clock.getDelta();
+  const dt = Math.min(rawDt, 0.1);
+  quality.update(rawDt);
   let speed = 0;
 
   if (!boarded) {

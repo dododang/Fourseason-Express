@@ -9,6 +9,7 @@ const BASE = `${import.meta.env.BASE_URL}audio/winter/`;
 const AMBIENCE_VOLUME = 0.68;
 const GUST_VOLUME = 0.22;
 const STEP_VOLUME = 0.48;
+const WOOD_RELATIVE = 0.7; // wood is sharper than snow, so it sits a little lower
 const GUST_INTERVAL = [30, 90]; // seconds between gusts
 
 // JSON arrays are typed as number[]; the build script always writes [offset, duration].
@@ -18,10 +19,13 @@ export class WinterAudio {
   private ambience = new Howl({ src: [`${BASE}ambience.m4a`], loop: true, volume: 0, html5: false });
   private gusts = new Howl({ src: [`${BASE}gusts.m4a`], sprite: sprites.gusts as unknown as SpriteMap, volume: GUST_VOLUME });
   private steps = new Howl({ src: [`${BASE}steps.m4a`], sprite: sprites.steps as unknown as SpriteMap });
+  private wood = new Howl({ src: [`${BASE}wood.m4a`], sprite: sprites.wood as unknown as SpriteMap });
 
   private gustNames = Object.keys(sprites.gusts);
   private stepNames = Object.keys(sprites.steps);
+  private woodNames = Object.keys(sprites.wood);
   private lastStep = -1;
+  private lastWood = -1;
   private lastGust = -1;
   private gustTimer = randomBetween(GUST_INTERVAL[0] * 0.5, GUST_INTERVAL[1] * 0.5);
   private started = false;
@@ -39,21 +43,23 @@ export class WinterAudio {
     this.ambience.fade(0, AMBIENCE_VOLUME, 4000, id);
   }
 
-  /**
-   * One footstep. `speed` is 0..1 from the joystick, so a gentle push sounds softer.
-   * `onWood` is a stand-in until a proper wooden-plank step sound is added.
-   */
+  /** One footstep. `speed` is 0..1 from the joystick, so a gentle push sounds softer. */
   step(speed: number, onWood: boolean): void {
     if (!this.started) return;
-    // Never the same sample twice in a row, with a little pitch and level variation.
-    let i = Math.floor(Math.random() * this.stepNames.length);
-    if (i === this.lastStep) i = (i + 1) % this.stepNames.length;
-    this.lastStep = i;
+    const sound = onWood ? this.wood : this.steps;
+    const names = onWood ? this.woodNames : this.stepNames;
 
-    const id = this.steps.play(this.stepNames[i]);
+    // Never the same sample twice in a row, with a little pitch and level variation.
+    const last = onWood ? this.lastWood : this.lastStep;
+    let i = Math.floor(Math.random() * names.length);
+    if (i === last) i = (i + 1) % names.length;
+    if (onWood) this.lastWood = i;
+    else this.lastStep = i;
+
+    const id = sound.play(names[i]);
     const level = STEP_VOLUME * (0.55 + 0.45 * speed) * randomBetween(0.85, 1.0);
-    this.steps.volume(onWood ? level * 0.45 : level, id);
-    this.steps.rate(onWood ? randomBetween(1.25, 1.35) : randomBetween(0.92, 1.08), id);
+    sound.volume(onWood ? level * WOOD_RELATIVE : level, id);
+    sound.rate(randomBetween(0.92, 1.08), id);
   }
 
   update(dt: number): void {
@@ -73,6 +79,7 @@ export class WinterAudio {
     this.ambience.unload();
     this.gusts.unload();
     this.steps.unload();
+    this.wood.unload();
   }
 }
 

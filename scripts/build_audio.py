@@ -4,6 +4,7 @@ Outputs (public/audio/winter/):
   ambience.m4a  seamless loop: two winds + quiet forest air + faint winter forest
   gusts.m4a     sprite of four passing gusts, played now and then at runtime
   steps.m4a     sprite of single footsteps in fresh snow
+  wood.m4a      sprite of single footsteps on the wooden platform
 and src/audio/winterSprites.json with the sprite offsets (ms) for Howler.
 
 Requires ffmpeg (FFMPEG env var, PATH, or the winget install location) and numpy.
@@ -157,9 +158,23 @@ def build_steps() -> dict:
     return offsets
 
 
+def build_wood_steps() -> dict:
+    src = load('521589__fission9__hiking-boot-footsteps-on-wooden-planks.wav', channels=1)
+    onsets = [0.10, 0.53, 0.93, 1.40, 1.82, 2.26]  # six clean steps, ~0.43 s apart
+    clips = []
+    for t in onsets:
+        c = fade(seconds(src, t - 0.01, t + 0.32), 0.003, 0.12)
+        peak = np.max(np.abs(c))
+        clips.append(c * (10 ** (-6 / 20) / peak))
+    data, offsets = sprite(clips, 0.3, 'wood')
+    save(data, 'wood.m4a', '96k')
+    print(f'wood steps: {len(clips)} clips, {len(data) / SR:.1f}s')
+    return offsets
+
+
 if __name__ == '__main__':
     build_ambience()
-    sprites = {'gusts': build_gusts(), 'steps': build_steps()}
+    sprites = {'gusts': build_gusts(), 'steps': build_steps(), 'wood': build_wood_steps()}
     SPRITES.parent.mkdir(parents=True, exist_ok=True)
     SPRITES.write_text(json.dumps(sprites, indent=2) + '\n', encoding='utf-8')
     for f in sorted(OUT.iterdir()):
