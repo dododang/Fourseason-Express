@@ -107,6 +107,12 @@ CLAUDE.md가 "무엇을, 왜" 만드는지를 정리한 문서라면, 이 문서
   - [x] 2-4. 역 사이에서 하늘, 땅, 먼 산, 나무, 눈이 다음 계절로 서서히 바뀐다
   - [ ] 2-5. 구역 지연 로딩: 다음 역에 가까워질 때 불러오고, 떠난 역은 dispose
   - [ ] 2-6. 봄 소리: 시냇물, 새소리, 풀 밟는 소리 (지금은 눈 소리를 작게 바꿔 임시로 씀)
+    - 구성안: 바탕 = 시냇물 + 새소리 반복 소리, 가끔 = 빗방울 (겨울의 스치는 바람처럼)
+    - 후보 (모두 CC0 확인, 2026-11-03). 사용자가 듣고 고르는 중. ⭐ 표시가 추천
+      - 시냇물: ⭐ https://freesound.org/people/VKProduktion/sounds/231536/ (반복용) / https://freesound.org/people/BurghRecords/sounds/446019/
+      - 새소리: ⭐ https://freesound.org/people/BurghRecords/sounds/456123/ / https://freesound.org/people/SamsterBirdies/sounds/578523/ / https://freesound.org/people/squashy555/sounds/573080/ / https://freesound.org/people/WhisperingEarth/sounds/798842/
+      - 빗방울: ⭐ https://freesound.org/people/INNORECORDS/sounds/457447/ / https://freesound.org/s/664162/ / https://freesound.org/people/ThaisMontanari/sounds/192338/
+      - 풀 발소리: ⭐ OwlStorm Footsteps 팩의 Grassy Footstep 1~4 https://freesound.org/people/OwlStorm/packs/9344/ (2번은 0.2초쯤 딸깍 소리, 다듬기)
 - **3단계, 사계절과 활동**: 나머지 역, 계절별 활동, 서버 시간 기준 열차 시간표. 네 역을 같은 간격과 같은 크기로 놓고 열차 4대를 동시에 운행한다.
 - **4단계, 함께 있는 느낌과 공개**: 같은 역 인원 표시부터 시작해서 다른 사람 모습, 인원 제한과 채널 분산, 배포.
 
