@@ -9,6 +9,7 @@ const BASE = `${import.meta.env.BASE_URL}audio/winter/`;
 const AMBIENCE_VOLUME = 0.68;
 const GUST_VOLUME = 0.22;
 const STEP_VOLUME = 0.48;
+const INDOOR_FACTOR = 0.35; // ambience level inside the closed car
 const WOOD_RELATIVE = 0.7; // wood is sharper than snow, so it sits a little lower
 const GUST_INTERVAL = [30, 90]; // seconds between gusts
 
@@ -29,7 +30,8 @@ export class WinterAudio {
   private lastGust = -1;
   private gustTimer = randomBetween(GUST_INTERVAL[0] * 0.5, GUST_INTERVAL[1] * 0.5);
   private started = false;
-  private ambienceOn = false;
+  private indoor = false;
+  private ambienceId = 0;
 
   constructor() {
     // Go quiet while the tab or app is in the background.
@@ -37,13 +39,20 @@ export class WinterAudio {
   }
 
   /** Call from a user gesture (the "열차에 타기" tap) so mobile browsers allow audio. */
-  start(withAmbience = true): void {
+  start(): void {
     if (this.started) return;
     this.started = true;
-    this.ambienceOn = withAmbience;
-    if (!withAmbience) return;
-    const id = this.ambience.play();
-    this.ambience.fade(0, AMBIENCE_VOLUME, 4000, id);
+    this.ambienceId = this.ambience.play();
+    this.ambience.fade(0, AMBIENCE_VOLUME, 4000, this.ambienceId);
+  }
+
+  /** Inside the closed train car the wind is muffled. */
+  setIndoor(indoor: boolean): void {
+    if (!this.started || indoor === this.indoor) return;
+    this.indoor = indoor;
+    const from = this.ambience.volume(this.ambienceId) as number;
+    this.ambience.fade(from, AMBIENCE_VOLUME * (indoor ? INDOOR_FACTOR : 1), 1500, this.ambienceId);
+    this.gusts.volume(GUST_VOLUME * (indoor ? INDOOR_FACTOR : 1));
   }
 
   /** One footstep. `speed` is 0..1 from the joystick, so a gentle push sounds softer. */
@@ -66,7 +75,7 @@ export class WinterAudio {
   }
 
   update(dt: number): void {
-    if (!this.ambienceOn) return;
+    if (!this.started) return;
     this.gustTimer -= dt;
     if (this.gustTimer > 0) return;
     this.gustTimer = randomBetween(GUST_INTERVAL[0], GUST_INTERVAL[1]);

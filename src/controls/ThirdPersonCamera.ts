@@ -13,8 +13,8 @@ export class ThirdPersonCamera {
   yaw = 0; // 0 = camera on +z looking toward -z
   pitch = 0.32;
   distance = 3.6;
-  /** Optional box the camera must stay inside (train interior walls). */
-  bounds: THREE.Box3 | null = null;
+  /** Optional collision: pulls the desired camera position in front of walls. */
+  collide: ((target: THREE.Vector3, desired: THREE.Vector3) => void) | null = null;
 
   private lookTarget = new THREE.Vector3();
   private desired = new THREE.Vector3();
@@ -59,8 +59,17 @@ export class ThirdPersonCamera {
       this.lookTarget.y + Math.sin(this.pitch) * this.distance,
       this.lookTarget.z + Math.cos(this.yaw) * cp * this.distance,
     );
+    // Walls pull the camera in along its line of sight (never sideways). Moving closer is
+    // immediate so a wall never hides the character; moving back out is smoothed.
+    const free = this.desired.distanceTo(this.lookTarget);
+    this.collide?.(this.lookTarget, this.desired);
+    const allowed = this.desired.distanceTo(this.lookTarget);
+    const current = this.camera.position.distanceTo(this.lookTarget);
     this.camera.position.lerp(this.desired, k);
-    if (this.bounds) this.camera.position.clamp(this.bounds.min, this.bounds.max);
+    if (allowed < free - 0.01 && allowed < current) {
+      // Keep the smoothed direction but never stay farther out than the wall allows.
+      this.camera.position.sub(this.lookTarget).setLength(allowed).add(this.lookTarget);
+    }
     this.camera.lookAt(this.lookTarget);
   }
 }

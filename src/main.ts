@@ -3,11 +3,13 @@ import * as THREE from 'three';
 import { Character } from './character/Character';
 import { randomLook } from './character/options';
 import { Entrance } from './ui/entrance';
+import { ZoneBanner } from './ui/zoneBanner';
+import { DoorTimer } from './ui/doorTimer';
 import { setupDebugStats } from './systems/debugStats';
 import { Input } from './controls/input';
 import { ThirdPersonCamera } from './controls/ThirdPersonCamera';
-import { buildWinterScene } from './scenes/winter';
-import { buildTrainScene } from './scenes/train';
+import { buildWinterScene, type Track } from './scenes/winter';
+import { Railway, TRAIN_FLOOR } from './systems/railway';
 import { Footprints } from './systems/footprints';
 import { Snowfall } from './systems/snowfall';
 import { WinterAudio } from './audio/WinterAudio';
@@ -27,15 +29,56 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 200);
 
 // No dynamic lights: unlit materials only (per performance rules).
-// Dev only: ?scene=train opens the train interior instead of the winter station.
 const params = new URLSearchParams(location.search);
-const inTrain = import.meta.env.DEV && params.get('scene') === 'train';
-const world = inTrain ? buildTrainScene(scene) : buildWinterScene(scene);
+const disposables: { dispose: () => void }[] = [];
+const track: Track = (d) => {
+  disposables.push(d);
+  return d;
+};
+const world = buildWinterScene(scene);
+const railway = new Railway(scene, track, world);
 const SPAWN = world.spawn;
 const footprints = new Footprints();
 const snowfall = new Snowfall();
-scene.add(footprints.mesh);
-if (world.snowfall) scene.add(snowfall.points);
+world.root.add(footprints.mesh); // prints belong to the station and travel with it
+scene.add(snowfall.points);
+let onBoardTrain = false; // player is inside the car
+
+// Season notice at the top when arriving somewhere.
+const banner = new ZoneBanner();
+const doorTimer = new DoorTimer();
+const NOTICE_RANGE = 20; // only near the train's stop, so the village stays free of it
+
+function formatWait(seconds: number): string {
+  const s = Math.ceil(seconds);
+  if (s < 60) return `${s}초`;
+  const m = Math.floor(s / 60);
+  const rest = s % 60;
+  return rest ? `${m}분 ${rest}초` : `${m}분`;
+}
+
+/** What the small train note says right now, or null to hide it. */
+function trainNotice(): string | null {
+  if (!boarded) return null;
+  const riding = railway.view === 'train';
+  if (!riding && railway.distanceToStop(player.root.position) > NOTICE_RANGE) return null;
+  switch (railway.phase) {
+    case 'stopped':
+      return `문이 닫히기까지 ${formatWait(railway.secondsUntilClose)}`;
+    case 'closing':
+      return '문이 닫히고 있어요';
+    case 'opening':
+      return null;
+    case 'arriving':
+      return riding ? null : '열차가 들어오고 있어요';
+    default:
+      return riding ? null : `다음 열차까지 ${formatWait(railway.secondsUntilArrival)}`;
+  }
+}
+railway.onArrive = () => {
+  // Only for riders: someone waiting on the platform hasn't entered a new zone.
+  if (boarded && onBoardTrain) banner.show(world.name);
+};
 
 // Player character with a random look on every visit.
 const player = new Character(randomLook());
@@ -50,9 +93,9 @@ const footPos = new THREE.Vector3();
 player.onStep = (foot) => {
   if (!boarded) return;
   player.footWorldPosition(foot, footPos);
-  const onWood = world.surfaceAt(footPos.x, footPos.z) === 'wood';
+  const onWood = onBoardTrain || world.surfaceAt(footPos.x, footPos.z) === 'wood';
   audio.step(walkSpeed, onWood);
-  if (!onWood) footprints.add(footPos.x, footPos.z, player.root.rotation.y);
+  if (!onWood) footprints.add(footPos.x - world.root.position.x, footPos.z, player.root.rotation.y);
 };
 
 // Camera framing: close-up while choosing, third-person follow after boarding.
@@ -70,7 +113,7 @@ camera.lookAt(camTarget);
 const input = new Input(container);
 const followCam = new ThirdPersonCamera(camera);
 followCam.yaw = world.viewYaw;
-followCam.bounds = world.cameraBounds ?? null;
+followCam.collide = (target, desired) => railway.collideCamera(target, desired);
 
 const entrance = new Entrance({
   initial: player.look,
@@ -81,8 +124,9 @@ const entrance = new Entrance({
   onBoard: () => {
     boarded = true;
     input.enabled = true;
-    audio.start(world.snowfall); // inside the tap handler, so mobile browsers allow sound
+    audio.start(); // inside the tap handler, so mobile browsers allow sound
     followCam.begin(camTarget);
+    window.setTimeout(() => banner.show(world.name), 900); // after the entrance panel fades
   },
 });
 
@@ -165,13 +209,18 @@ renderer.setAnimationLoop(() => {
         .add(followCam.forward(tmpForward).multiplyScalar(y));
       player.root.position.addScaledVector(moveDir, WALK_SPEED * dt);
       facing = Math.atan2(moveDir.x, moveDir.z);
-
-      world.constrain(player.root.position, PLAYER_RADIUS);
     }
 
-    // Step up onto / down from the platform smoothly.
+    // Every frame, not only while moving: closing doors must push a player out of the doorway.
     const p = player.root.position;
-    p.y = THREE.MathUtils.damp(p.y, world.heightAt(p.x, p.z), 14, dt);
+    onBoardTrain = railway.isInside(p);
+    if (onBoardTrain) railway.constrainInside(p, PLAYER_RADIUS);
+    else world.constrain(p, PLAYER_RADIUS);
+    onBoardTrain = railway.isInside(p);
+
+    // Step up onto / down from the platform and the car floor smoothly.
+    const ground = onBoardTrain ? TRAIN_FLOOR : world.heightAt(p.x, p.z);
+    p.y = THREE.MathUtils.damp(p.y, ground, 14, dt);
 
     const goal = nearestAngle(player.root.rotation.y, facing);
     player.root.rotation.y = THREE.MathUtils.damp(player.root.rotation.y, goal, speed > 0 ? 10 : 3, dt);
@@ -188,7 +237,11 @@ renderer.setAnimationLoop(() => {
 
   walkSpeed = speed;
   player.update(dt, speed);
-  world.update?.(dt);
+  railway.update(dt, player.root.position);
+  doorTimer.update(trainNotice());
+  const indoors = railway.isInside(camera.position);
+  snowfall.points.visible = !indoors;
+  audio.setIndoor(onBoardTrain && railway.doorOpen < 0.5);
   audio.update(dt);
   footprints.update(dt);
   snowfall.update(dt, camera);

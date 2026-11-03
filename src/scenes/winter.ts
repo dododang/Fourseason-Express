@@ -1,5 +1,7 @@
-// Winter station: snowfield, small station platform, rails, pine trees, rocks and snow mounds.
+// Winter station: snowfield, a long station platform, pine groves, rocks and snow mounds.
 // Everything is code-built, unlit, and instanced where it repeats.
+// Station content lives under one root group so the whole station can slide past the train
+// window; the sky and the far mountains are a shared backdrop that stays put.
 import * as THREE from 'three';
 import { box, cylinder, jitter, merge, paint, propMaterial, seededRandom } from './lowpoly';
 import type { Zone } from './zone';
@@ -15,16 +17,25 @@ const TRUNK = '#7a6152';
 const ROCK = '#8f98a5';
 const WOOD = '#a98d74';
 const WOOD_DARK = '#7d6655';
-const STEEL = '#6f7782';
 const POLE = '#4a4f58';
 
 const SEED = 20261103;
 export const WORLD_RADIUS = 60;
 
-// Station layout (the player starts on the platform, the village lies toward -z).
-const PLATFORM = { minX: -4.5, maxX: 4.5, minZ: 0.2, maxZ: 2.8, height: 0.12 };
-const RAIL_Z = 4.1;
-const SPAWN = new THREE.Vector3(0, PLATFORM.height, 1.4);
+// Station layout: the platform runs along the rails (x), the village lies toward -z.
+// The platform is longer than the 22 m train car, and its edge meets the car's side wall.
+export const PLATFORM = { minX: -13, maxX: 13, minZ: 0.2, maxZ: 2.8, height: 0.12 };
+export const RAIL_Z = 4.95; // track center line; the car (4.2 m wide) starts at the platform edge
+const SPAWN = new THREE.Vector3(0, PLATFORM.height, 1.6);
+
+export interface StationZone extends Zone {
+  /** Season name shown when entering, e.g. "겨울". */
+  name: string;
+  /** Everything that belongs to the station (moves together when seen from a running train). */
+  root: THREE.Group;
+  /** While set and true for x, the rail-side edge of the platform is open (train doors). */
+  railGate: ((x: number) => boolean) | null;
+}
 
 export interface Collider {
   x: number;
@@ -32,7 +43,7 @@ export interface Collider {
   r: number;
 }
 
-export function buildWinterScene(scene: THREE.Scene): Zone {
+export function buildWinterScene(scene: THREE.Scene): StationZone {
   const rand = seededRandom(SEED);
   const disposables: { dispose: () => void }[] = [];
   const track = <T extends { dispose: () => void }>(d: T): T => {
@@ -44,9 +55,19 @@ export function buildWinterScene(scene: THREE.Scene): Zone {
   scene.background = HORIZON;
   scene.fog = new THREE.Fog(HORIZON, 20, 85);
 
-  scene.add(createSky(track), createMountains(track, rand), createGround(track));
-  scene.add(createStation(track, colliders), createRails(track));
-  scene.add(...createNature(track, rand, colliders));
+  // Shared backdrop: sky, far mountains, and plain snow that continues past the station ground.
+  const farGround = new THREE.Mesh(
+    track(new THREE.PlaneGeometry(1500, 1500)),
+    track(new THREE.MeshBasicMaterial({ color: SNOW })),
+  );
+  farGround.rotation.x = -Math.PI / 2;
+  farGround.position.y = -0.05;
+  scene.add(createSky(track), createMountains(track, rand), farGround);
+
+  const root = new THREE.Group();
+  root.add(createGround(track), createStation(track, colliders));
+  root.add(...createNature(track, rand, colliders));
+  scene.add(root);
 
   const heightAt = (x: number, z: number): number =>
     x > PLATFORM.minX && x < PLATFORM.maxX && z > PLATFORM.minZ && z < PLATFORM.maxZ ? PLATFORM.height : 0;
@@ -58,8 +79,8 @@ export function buildWinterScene(scene: THREE.Scene): Zone {
       p.x *= WORLD_RADIUS / r;
       p.z *= WORLD_RADIUS / r;
     }
-    // Don't step onto the rails.
-    p.z = Math.min(p.z, PLATFORM.maxZ - radius);
+    // Don't step onto the rails, except through an open train door.
+    if (!zone.railGate?.(p.x)) p.z = Math.min(p.z, PLATFORM.maxZ - radius);
     // Push out of props.
     for (const c of colliders) {
       const dx = p.x - c.x;
@@ -74,15 +95,19 @@ export function buildWinterScene(scene: THREE.Scene): Zone {
     }
   };
 
-  return {
+  const zone: StationZone = {
+    name: '겨울',
+    root,
+    railGate: null,
     spawn: SPAWN.clone(),
-    viewYaw: 0,
+    viewYaw: Math.PI, // camera on the village side, so the player faces the train
     snowfall: true,
     heightAt,
     surfaceAt: (x, z) => (heightAt(x, z) > 0 ? 'wood' : 'snow'),
     constrain,
     dispose: () => disposables.forEach((d) => d.dispose()),
   };
+  return zone;
 }
 
 export type Track = <T extends { dispose: () => void }>(d: T) => T;
@@ -180,7 +205,7 @@ function createStation(track: Track, colliders: Collider[]): THREE.Group {
   parts.push(box(PLATFORM.maxX - PLATFORM.minX + 0.2, 0.07, 0.22, 0, 0.035, PLATFORM.minZ - 0.06, '#f1f4f8'));
 
   // Bench.
-  const bx = 2.2;
+  const bx = 8.5;
   const bz = 0.75;
   parts.push(box(1.5, 0.07, 0.42, bx, top + 0.44, bz, WOOD));
   parts.push(box(1.5, 0.32, 0.06, bx, top + 0.68, bz - 0.2, WOOD));
@@ -188,7 +213,7 @@ function createStation(track: Track, colliders: Collider[]): THREE.Group {
   colliders.push({ x: bx - 0.45, z: bz, r: 0.35 }, { x: bx + 0.45, z: bz, r: 0.35 });
 
   // Station sign: two posts and a board.
-  const sx = -2.2;
+  const sx = -8.5;
   const sz = 0.55;
   for (const px of [-0.75, 0.75]) {
     parts.push(cylinder(0.05, 2.1, sx + px, top + 1.05, sz, POLE));
@@ -200,6 +225,8 @@ function createStation(track: Track, colliders: Collider[]): THREE.Group {
   // Lamp posts at both ends.
   const lamps = [
     { x: PLATFORM.minX + 0.5, z: 0.55 },
+    { x: -3, z: 0.55 },
+    { x: 3, z: 0.55 },
     { x: PLATFORM.maxX - 0.5, z: 0.55 },
   ];
   for (const l of lamps) {
@@ -229,7 +256,11 @@ function createStation(track: Track, colliders: Collider[]): THREE.Group {
     track(new THREE.MeshBasicMaterial({ map: tex })),
   );
   label.position.set(sx, top + 1.85, sz + 0.045);
-  group.add(label);
+  // Readable from the train (front) and from the village (back).
+  const back = label.clone();
+  back.rotation.y = Math.PI;
+  back.position.z = sz - 0.045;
+  group.add(label, back);
 
   // Lamp heads: warm, always-bright spheres with a soft additive glow (no real lights).
   const headGeo = track(new THREE.SphereGeometry(0.12, 10, 8));
@@ -261,29 +292,6 @@ export function radialTexture(inner: string, outer: string): THREE.CanvasTexture
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, size, size);
   return new THREE.CanvasTexture(canvas);
-}
-
-// Rails running along x behind the platform; the fog hides both ends.
-function createRails(track: Track): THREE.Group {
-  const group = new THREE.Group();
-  const length = 160;
-  const parts = [
-    box(length, 0.05, 2.0, 0, 0.025, RAIL_Z, '#c9d0d9'), // gravel bed
-    box(length, 0.1, 0.07, 0, 0.13, RAIL_Z - 0.6, STEEL),
-    box(length, 0.1, 0.07, 0, 0.13, RAIL_Z + 0.6, STEEL),
-  ];
-  group.add(new THREE.Mesh(track(merge(parts)), propMaterial));
-
-  const sleeperGeo = track(box(0.28, 0.07, 1.6, 0, 0.08, 0, '#6d5a4c'));
-  const spacing = 0.8;
-  const count = Math.floor(length / spacing);
-  const sleepers = new THREE.InstancedMesh(sleeperGeo, propMaterial, count);
-  const m = new THREE.Matrix4();
-  for (let i = 0; i < count; i++) {
-    sleepers.setMatrixAt(i, m.makeTranslation(-length / 2 + i * spacing, 0, RAIL_Z));
-  }
-  group.add(sleepers);
-  return group;
 }
 
 // Pine tree: trunk, three tiers of foliage, each topped with a snow cap.
@@ -325,7 +333,7 @@ function createMoundGeometry(): THREE.BufferGeometry {
 /** Keep the station, the rails and a path into the village clear of props. */
 function isReserved(x: number, z: number, margin: number): boolean {
   const nearStation = x > PLATFORM.minX - 2 - margin && x < PLATFORM.maxX + 2 + margin && z > -2.5 - margin;
-  const railBand = z > PLATFORM.maxZ - margin && z < RAIL_Z + 1.6 + margin;
+  const railBand = z > PLATFORM.maxZ - margin && z < RAIL_Z + 3.2 + margin;
   const path = Math.abs(x) < 2.2 + margin && z > -14 && z < 0;
   return nearStation || railBand || path;
 }
@@ -388,7 +396,7 @@ function createNature(track: Track, rand: () => number, colliders: Collider[]): 
       const r = radius + (rand() - 0.5) * 0.8;
       const x = Math.cos(a) * r;
       const z = Math.sin(a) * r;
-      if (Math.abs(z - RAIL_Z) < 2.6) continue;
+      if (Math.abs(z - RAIL_Z) < 3.6) continue;
       const scale = 1.1 + rand() * 0.6;
       placed.push({ x, z, r: 0.7 * scale });
       treeSpots.push({ x, z, scale });
