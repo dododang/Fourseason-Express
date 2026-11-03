@@ -3,8 +3,16 @@ import * as THREE from 'three';
 import { Character } from './character/Character';
 import { randomLook } from './character/options';
 import { Entrance } from './ui/entrance';
+import { setupDebugStats } from './systems/debugStats';
+import { Input } from './controls/input';
+import { ThirdPersonCamera } from './controls/ThirdPersonCamera';
 
 const container = document.getElementById('app')!;
+
+// iOS Safari ignores user-scalable=no: block pinch and double-tap zoom explicitly.
+for (const type of ['gesturestart', 'gesturechange', 'dblclick']) {
+  document.addEventListener(type, (e) => e.preventDefault(), { passive: false });
+}
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -90,15 +98,17 @@ scene.add(createSky(), createMountains(), ground);
 const player = new Character(randomLook());
 scene.add(player.root);
 
-// Camera framing: close-up while choosing, behind the character after boarding.
+// Camera framing: close-up while choosing, third-person follow after boarding.
 const ENTRANCE_CAM = { pos: new THREE.Vector3(0, 0.85, 3.0), target: new THREE.Vector3(0, 0.52, 0) };
-const PLAY_CAM = { pos: new THREE.Vector3(0, 1.7, 3.6), target: new THREE.Vector3(0, 0.6, 0) };
 let boarded = false;
 let popTime = 1; // seconds since the last look change (drives a small bounce)
 
 const camTarget = ENTRANCE_CAM.target.clone();
 camera.position.copy(ENTRANCE_CAM.pos);
 camera.lookAt(camTarget);
+
+const input = new Input(container);
+const followCam = new ThirdPersonCamera(camera);
 
 const entrance = new Entrance({
   initial: player.look,
@@ -108,6 +118,8 @@ const entrance = new Entrance({
   },
   onBoard: () => {
     boarded = true;
+    input.enabled = true;
+    followCam.begin(camTarget);
   },
 });
 
@@ -142,16 +154,53 @@ function nearestAngle(current: number, target: number): number {
   return target + Math.round((current - target) / twoPi) * twoPi;
 }
 
+const WALK_SPEED = 2.0; // m/s at full stick
+const WORLD_RADIUS = 28; // keep the player on the snowfield
+const tmpForward = new THREE.Vector3();
+const tmpRight = new THREE.Vector3();
+const moveDir = new THREE.Vector3();
+let facing = Math.PI; // after boarding the character turns its back to the camera
+
 const clock = new THREE.Clock();
+const frame = await setupDebugStats(renderer);
 renderer.setAnimationLoop(() => {
+  frame.begin();
   const dt = Math.min(clock.getDelta(), 0.1);
+  let speed = 0;
 
   if (!boarded) {
     player.root.rotation.y += dt * 0.45;
+    camera.position.lerp(ENTRANCE_CAM.pos, 1 - Math.exp(-2.5 * dt));
+    camTarget.lerp(ENTRANCE_CAM.target, 1 - Math.exp(-2.5 * dt));
+    camera.lookAt(camTarget);
   } else {
-    // Turn to show the back, as in the third-person view.
-    const goal = nearestAngle(player.root.rotation.y, Math.PI);
-    player.root.rotation.y = THREE.MathUtils.damp(player.root.rotation.y, goal, 3, dt);
+    input.update();
+    const look = input.consumeLook();
+    followCam.rotate(look.dx, look.dy);
+    followCam.zoom(input.consumeZoom());
+
+    // Move relative to where the camera is looking.
+    const { x, y } = input.move;
+    speed = Math.hypot(x, y);
+    if (speed > 0) {
+      moveDir
+        .copy(followCam.right(tmpRight).multiplyScalar(x))
+        .add(followCam.forward(tmpForward).multiplyScalar(y));
+      player.root.position.addScaledVector(moveDir, WALK_SPEED * dt);
+      facing = Math.atan2(moveDir.x, moveDir.z);
+
+      // Soft circular boundary.
+      const p = player.root.position;
+      const r = Math.hypot(p.x, p.z);
+      if (r > WORLD_RADIUS) {
+        p.x *= WORLD_RADIUS / r;
+        p.z *= WORLD_RADIUS / r;
+      }
+    }
+
+    const goal = nearestAngle(player.root.rotation.y, facing);
+    player.root.rotation.y = THREE.MathUtils.damp(player.root.rotation.y, goal, speed > 0 ? 10 : 3, dt);
+    followCam.update(dt, player.root.position);
   }
 
   // Small bounce when the look changes.
@@ -159,14 +208,10 @@ renderer.setAnimationLoop(() => {
   const pop = popTime < 0.35 ? Math.sin((popTime / 0.35) * Math.PI) * 0.08 : 0;
   player.root.scale.setScalar(1 + pop);
 
-  const cam = boarded ? PLAY_CAM : ENTRANCE_CAM;
-  camera.position.lerp(cam.pos, 1 - Math.exp(-2.5 * dt));
-  camTarget.lerp(cam.target, 1 - Math.exp(-2.5 * dt));
-  camera.lookAt(camTarget);
-
   viewShift.lerp(targetViewShift(), 1 - Math.exp(-4 * dt));
   applyViewShift();
 
-  player.update(dt, 0);
+  player.update(dt, speed);
   renderer.render(scene, camera);
+  frame.end();
 });

@@ -1,0 +1,111 @@
+/* Joystick zone: a rectangle at the bottom-left. Faint outline until the player first walks. */
+.joystick-zone {
+  position: fixed;
+  left: calc(env(safe-area-inset-left) + 12px);
+  bottom: calc(env(safe-area-inset-bottom) + 16px);
+  width: min(46vw, 230px);
+  height: min(34vh, 260px);
+  border-radius: 28px;
+  border: 1.5px dashed rgba(130, 138, 150, 0.55);
+  background: rgba(140, 148, 160, 0.06);
+  box-sizing: border-box;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  z-index: 19;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.joystick-zone__ghost {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: rgba(140, 148, 160, 0.14);
+  border: 1.5px solid rgba(130, 138, 150, 0.45);
+  box-sizing: border-box;
+}
+
+.joystick-zone__ghost-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 40px;
+  height: 40px;
+  margin: -20px 0 0 -20px;
+  border-radius: 50%;
+  background: rgba(176, 183, 193, 0.8);
+  animation: joystick-hint 2.4s ease-in-out infinite;
+}
+
+/* The knob drifts gently up and back, hinting that it can be pushed. */
+@keyframes joystick-hint {
+  0%, 30%, 100% { transform: translate(0, 0); }
+  55%, 70% { transform: translate(0, -18px); }
+}
+
+.joystick-zone__label {
+  margin: 0;
+  font-family: var(--ui-font);
+  font-size: 13px;
+  color: #5d6676;
+}
+
+.joystick-zone.is-visible {
+  opacity: 0.8;
+}
+
+.joystick-zone.is-visible.is-learned {
+  opacity: 0;
+}
+
+/* Floating joystick, centered on the touch point via transform. */
+.joystick {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 20;
+}
+
+.joystick.is-active {
+  opacity: 1;
+}
+
+.joystick::before {
+  content: '';
+  position: absolute;
+  left: -58px;
+  top: -58px;
+  width: 116px;
+  height: 116px;
+  border-radius: 50%;
+  background: rgba(140, 148, 160, 0.18);
+  border: 1.5px solid rgba(130, 138, 150, 0.5);
+  box-sizing: border-box;
+}
+
+.joystick__knob {
+  position: absolute;
+  left: -24px;
+  top: -24px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(176, 183, 193, 0.9);
+  box-shadow: 0 2px 8px rgba(61, 70, 86, 0.18);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .joystick-zone__ghost-knob {
+    animation: none;
+  }
+}

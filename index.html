@@ -6,7 +6,18 @@
     <meta name="theme-color" content="#dfe7ef" />
     <title>포시즌 열차</title>
     <style>
-      html, body { margin: 0; height: 100%; overflow: hidden; background: #dfe7ef; }
+      html, body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #dfe7ef;
+        /* iOS ignores user-scalable=no; these stop double-tap zoom and long-press selection. */
+        touch-action: manipulation;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+        -webkit-tap-highlight-color: transparent;
+      }
       #app { position: fixed; inset: 0; height: 100dvh; touch-action: none; }
       canvas { display: block; }
 
