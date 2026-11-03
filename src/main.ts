@@ -57,6 +57,11 @@ function formatWait(seconds: number): string {
   return rest ? `${m}분 ${rest}초` : `${m}분`;
 }
 
+/** Name of the station the train is heading to. Only one station on the test loop for now. */
+function nextStation(): string {
+  return world.name;
+}
+
 /** What the small train note says right now, or null to hide it. */
 function trainNotice(): string | null {
   if (!boarded) return null;
@@ -70,9 +75,11 @@ function trainNotice(): string | null {
     case 'opening':
       return null;
     case 'arriving':
-      return riding ? null : '열차가 들어오고 있어요';
+      return riding ? `곧 ${nextStation()}역에 도착해요` : '열차가 들어오고 있어요';
     default:
-      return riding ? null : `다음 열차까지 ${formatWait(railway.secondsUntilArrival)}`;
+      return riding
+        ? `${nextStation()}역까지 ${formatWait(railway.secondsUntilArrival)}`
+        : `다음 열차까지 ${formatWait(railway.secondsUntilArrival)}`;
   }
 }
 railway.onArrive = () => {
