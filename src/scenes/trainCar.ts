@@ -1,8 +1,7 @@
 // The train car model: an open wooden interior with wide windows and big sliding doors,
 // plus a painted exterior shell and roof. Local frame: the car runs along x, the floor is y = 0.
 import * as THREE from 'three';
-import { box, merge, propMaterial } from './lowpoly';
-import type { Track } from './winter';
+import { box, merge, propMaterial, type Track } from './lowpoly';
 
 // Interior palette: warm wood and cream, a contrast to the cold blue-white outside.
 const FLOOR = '#8a6a52';

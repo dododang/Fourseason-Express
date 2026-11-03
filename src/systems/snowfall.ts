@@ -10,6 +10,7 @@ const vertexShader = /* glsl */ `
   uniform float uScale;
   uniform vec3 uCamera;
   uniform vec3 uBox;
+  uniform float uIntensity;
   attribute float aSpeed;
   attribute float aPhase;
   attribute float aSize;
@@ -32,6 +33,8 @@ const vertexShader = /* glsl */ `
     // Fade near the edges of the box and very close to the camera.
     float dist = length(p - uCamera);
     vAlpha = smoothstep(0.6, 1.8, dist) * (1.0 - smoothstep(9.0, 13.5, dist));
+    // Thin out toward spring: fewer flakes rather than fainter ones.
+    vAlpha *= step(fract(aPhase * 7.31), uIntensity);
   }
 `;
 
@@ -76,6 +79,7 @@ export class Snowfall {
         uScale: { value: 1 },
         uCamera: { value: new THREE.Vector3() },
         uBox: { value: BOX.clone() },
+        uIntensity: { value: 1 },
       },
       transparent: true,
       depthWrite: false,
@@ -83,6 +87,11 @@ export class Snowfall {
     this.points = new THREE.Points(geo, this.material);
     this.points.frustumCulled = false; // positions are moved in the shader
     this.points.renderOrder = 2;
+  }
+
+  /** 0 = no snow, 1 = full snowfall. */
+  setIntensity(t: number): void {
+    this.material.uniforms.uIntensity.value = t;
   }
 
   /** Call on resize: converts world-size flakes to pixels. */

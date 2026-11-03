@@ -55,9 +55,14 @@ export class WinterAudio {
     this.gusts.volume(GUST_VOLUME * (indoor ? INDOOR_FACTOR : 1));
   }
 
-  /** One footstep. `speed` is 0..1 from the joystick, so a gentle push sounds softer. */
-  step(speed: number, onWood: boolean): void {
+  /**
+   * One footstep. `speed` is 0..1 from the joystick, so a gentle push sounds softer.
+   * Grass is a stand-in (soft, higher snow steps) until a proper grass recording is added.
+   */
+  step(speed: number, surface: 'snow' | 'grass' | 'wood'): void {
     if (!this.started) return;
+    const onWood = surface === 'wood';
+    const grass = surface === 'grass';
     const sound = onWood ? this.wood : this.steps;
     const names = onWood ? this.woodNames : this.stepNames;
 
@@ -70,8 +75,8 @@ export class WinterAudio {
 
     const id = sound.play(names[i]);
     const level = STEP_VOLUME * (0.55 + 0.45 * speed) * randomBetween(0.85, 1.0);
-    sound.volume(onWood ? level * WOOD_RELATIVE : level, id);
-    sound.rate(randomBetween(0.92, 1.08), id);
+    sound.volume(onWood ? level * WOOD_RELATIVE : grass ? level * 0.45 : level, id);
+    sound.rate(grass ? randomBetween(1.25, 1.4) : randomBetween(0.92, 1.08), id);
   }
 
   update(dt: number): void {

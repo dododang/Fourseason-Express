@@ -96,5 +96,8 @@ export function cylinder(r: number, h: number, x: number, y: number, z: number, 
   return paint(g, color, { min: 0.72 });
 }
 
+/** Registers a GPU resource so a scene can dispose everything it made in one go. */
+export type Track = <T extends { dispose: () => void }>(d: T) => T;
+
 /** One material for every painted prop. */
 export const propMaterial = new THREE.MeshBasicMaterial({ vertexColors: true });

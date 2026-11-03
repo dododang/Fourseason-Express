@@ -1,9 +1,10 @@
-// The railway: one train car running a loop through the station on a timetable.
+// The railway: a loop line with equally spaced stations and one train per station, all on the
+// same timetable, so every station has a train standing at it at the same time (CLAUDE.md).
 //
-// Two ways of showing the same motion (CLAUDE.md "열차 설계"):
-//  - 'station' view: the station stays put and the train really moves (player on the platform).
-//  - 'train' view:   the train stays put and the station + scenery slide past (player on board).
-// The view only changes while the train is stopped, so nothing jumps.
+// Two ways of showing the motion (CLAUDE.md "열차 설계"):
+//  - 'station' view: the station the player is at stays put and the trains really move.
+//  - 'train' view:   the car the player rides stays put and stations + scenery slide past.
+// The view only changes while the trains are stopped, so nothing jumps.
 import * as THREE from 'three';
 import {
   CAR_HALF_LENGTH,
@@ -20,53 +21,128 @@ import {
   createTrainCar,
   type TrainCar,
 } from '../scenes/trainCar';
-import { TrackScenery, CHUNK } from '../scenes/trackScenery';
-import { createPineGeometry, PLATFORM, RAIL_Z, type StationZone, type Track } from '../scenes/winter';
+import { TrackScenery, CHUNK, type SeasonSample } from '../scenes/trackScenery';
+import { PLATFORM, RAIL_Z, type StationZone } from '../scenes/station';
+import { clonePalette, lerpPalette } from '../scenes/seasons';
+import type { Track } from '../scenes/lowpoly';
 
-const SPEED = 12; // m/s cruising
-// Test timetable (seconds). Distances: departing and arriving cover SPEED * T / 2 each.
-const CYCLE = { stopped: 40, closing: 3, departing: 10, running: 47, arriving: 16, opening: 3 } as const;
+// Test timetable (seconds): about 40 s of travel between stations.
+const CYCLE = { stopped: 40, closing: 3, departing: 8, running: 22, arriving: 10, opening: 3 } as const;
 type Phase = keyof typeof CYCLE;
 const ORDER: Phase[] = ['stopped', 'closing', 'departing', 'running', 'arriving', 'opening'];
-// One lap = departing + running + arriving distance. Must be a multiple of 3 scenery chunks.
-const LOOP = SPEED * (CYCLE.departing / 2 + CYCLE.running + CYCLE.arriving / 2);
-if (LOOP % (CHUNK * 3) !== 0) console.warn(`Railway loop ${LOOP} m is not a multiple of ${CHUNK * 3} m`);
+/** Distance between neighboring stations. The loop (SEGMENT x stations) must be a multiple of 360 m. */
+const SEGMENT = 720;
+/** Cruising speed that covers one segment in the timetable (accel/decel each cover SPEED * T / 2). */
+const SPEED = SEGMENT / (CYCLE.departing / 2 + CYCLE.running + CYCLE.arriving / 2);
 
 export const TRAIN_FLOOR = PLATFORM.height; // level boarding from the platform
 
 export class Railway {
-  /** 0 = closed, 1 = open. */
+  /** 0 = closed, 1 = open (all trains move together). */
   doorOpen = 0;
   phase: Phase = 'stopped';
   view: 'station' | 'train' = 'station';
-  /** Called when the train pulls in and its doors start to open. */
-  onArrive: (() => void) | null = null;
+  /** Called when the trains pull in and their doors start to open. */
+  onArrive: ((station: StationZone) => void) | null = null;
 
-  private car: TrainCar;
+  private readonly loop: number;
+  private cars: TrainCar[] = [];
+  private carX: number[] = []; // car positions along x in the current view
   private scenery: TrackScenery;
   private phaseIndex = 0;
   private phaseTime = 0;
-  private s = 0; // distance along the loop since the station, 0..LOOP
-  private carX = 0; // car position along x in the current view
+  private d = 0; // distance along the current leg, 0..SEGMENT
+  private legs = 0; // completed legs, decides which car is at which station
+  private frame = 0; // station the player's frame belongs to (station view)
+  private riding = -1; // car the player rides (train view)
+  private sample: SeasonSample;
 
   constructor(
     scene: THREE.Scene,
     track: Track,
-    private station: StationZone,
+    private stations: StationZone[],
   ) {
-    this.car = createTrainCar(track, -1); // platform is on the -z side of the track
-    this.car.group.position.set(0, TRAIN_FLOOR, RAIL_Z);
-    this.scenery = new TrackScenery(track, track(createPineGeometry()), LOOP, [0]);
-    this.scenery.root.position.z = RAIL_Z;
-    scene.add(this.car.group, this.scenery.root);
+    this.loop = SEGMENT * stations.length;
+    if (this.loop % (CHUNK * 3) !== 0) console.warn(`Railway loop ${this.loop} m is not a multiple of ${CHUNK * 3} m`);
 
-    // The platform edge opens only at an open door.
-    station.railGate = (x) => this.doorsPassable() && this.inDoorway(x - this.carX, 0.3);
+    for (let k = 0; k < stations.length; k++) {
+      const car = createTrainCar(track, -1); // platforms are on the -z side of the track
+      car.group.position.set(0, TRAIN_FLOOR, RAIL_Z);
+      scene.add(car.group);
+      this.cars.push(car);
+      this.carX.push(0);
+    }
+    this.sample = { palette: clonePalette(stations[0].palette), winter: 1 };
+    this.scenery = new TrackScenery(
+      track,
+      this.loop,
+      stations.map((_, i) => i * SEGMENT),
+      (u) => this.seasonAt(u),
+    );
+    this.scenery.root.position.z = RAIL_Z;
+    scene.add(this.scenery.root);
+
+    // A platform edge opens only at an open door of the car standing there.
+    for (const st of stations) {
+      st.railGate = (x) =>
+        this.doorsPassable() && this.cars.some((_, k) => Math.abs(this.carX[k]) < 1 && this.inDoorway(x - this.carX[k], 0.3));
+    }
   }
 
-  /** Position along the loop wrapped to (-LOOP/2, LOOP/2]: negative while approaching. */
-  private get rel(): number {
-    return this.s > LOOP / 2 ? this.s - LOOP : this.s;
+  /** Dev only: start the player's frame at another station. */
+  startAt(index: number): void {
+    this.frame = ((index % this.stations.length) + this.stations.length) % this.stations.length;
+  }
+
+  /** The station the player is at (or was last at while riding). */
+  get station(): StationZone {
+    return this.stations[this.frame];
+  }
+
+  /** Where the trains are heading on this leg, as seen by the player's car or station. */
+  get nextStation(): StationZone {
+    const from = this.riding >= 0 ? this.stationOfCar(this.riding) : this.frame;
+    return this.stations[(from + 1) % this.stations.length];
+  }
+
+  /** Season at the current view position (for sky, ground, snowfall). */
+  get viewSeason(): SeasonSample {
+    return this.seasonAt(this.viewS());
+  }
+
+  /** Station index a car departed from on the current leg (or stands at while stopped). */
+  private stationOfCar(k: number): number {
+    return (k + this.legs) % this.stations.length;
+  }
+
+  /** Track position of a car. */
+  private carS(k: number): number {
+    return this.stationOfCar(k) * SEGMENT + this.d;
+  }
+
+  /** Signed distance a → b along the loop, wrapped to (-loop/2, loop/2]. */
+  private rel(from: number, to: number): number {
+    const r = (((to - from) % this.loop) + this.loop) % this.loop;
+    return r > this.loop / 2 ? r - this.loop : r;
+  }
+
+  private viewS(): number {
+    return this.view === 'train' ? this.carS(this.riding) : this.frame * SEGMENT;
+  }
+
+  /** Palette and tree mix at a track position: pure at stations, blended mid-leg. */
+  private seasonAt(u: number): SeasonSample {
+    const n = this.stations.length;
+    const wrapped = ((u % this.loop) + this.loop) % this.loop;
+    const i = Math.floor(wrapped / SEGMENT) % n;
+    const t = THREE.MathUtils.smoothstep((wrapped - i * SEGMENT) / SEGMENT, 0.3, 0.7);
+    const a = this.stations[i];
+    const b = this.stations[(i + 1) % n];
+    lerpPalette(a.palette, b.palette, t, this.sample.palette);
+    const wa = a.season === 'winter' ? 1 : 0;
+    const wb = b.season === 'winter' ? 1 : 0;
+    this.sample.winter = wa + (wb - wa) * t;
+    return this.sample;
   }
 
   update(dt: number, player: THREE.Vector3): void {
@@ -78,7 +154,7 @@ export class Railway {
 
     switch (phase) {
       case 'stopped':
-        this.s = 0;
+        this.d = 0;
         this.doorOpen = 1;
         break;
       case 'closing':
@@ -86,18 +162,18 @@ export class Railway {
         break;
       case 'departing':
         // Distance under a smoothstep speed ramp: V T (t^3 - t^4 / 2).
-        this.s = SPEED * T * (t ** 3 - t ** 4 / 2);
+        this.d = SPEED * T * (t ** 3 - t ** 4 / 2);
         break;
       case 'running':
-        this.s = SPEED * (CYCLE.departing / 2 + this.phaseTime);
+        this.d = SPEED * (CYCLE.departing / 2 + Math.min(this.phaseTime, T));
         break;
       case 'arriving': {
-        const start = LOOP - (SPEED * T) / 2;
-        this.s = start + SPEED * T * (t - t ** 3 + t ** 4 / 2);
+        const start = SEGMENT - (SPEED * T) / 2;
+        this.d = start + SPEED * T * (t - t ** 3 + t ** 4 / 2);
         break;
       }
       case 'opening':
-        this.s = 0;
+        this.d = 0;
         this.doorOpen = ease;
         break;
     }
@@ -107,25 +183,68 @@ export class Railway {
       this.phaseIndex = (this.phaseIndex + 1) % ORDER.length;
       this.phaseTime = 0;
       const next = ORDER[this.phaseIndex];
-      // Choose how to show the trip at the moment the train starts to move.
-      if (next === 'departing') this.view = this.isInside(player) ? 'train' : 'station';
+      if (next === 'departing') {
+        // Choose how to show the trip at the moment the trains start to move.
+        this.riding = this.cars.findIndex((_, k) => this.insideCar(k, player));
+        this.view = this.riding >= 0 ? 'train' : 'station';
+      }
       if (next === 'opening') {
+        // Every train has reached the next station.
+        this.legs++;
+        this.d = 0;
+        if (this.riding >= 0) this.frame = this.stationOfCar(this.riding);
+        this.riding = -1;
         this.view = 'station';
-        this.onArrive?.();
+        this.onArrive?.(this.station);
       }
     }
 
-    if (this.view === 'train') {
-      this.carX = 0;
-      this.station.root.position.x = -this.rel;
-      this.scenery.update(this.s);
-    } else {
-      this.carX = this.rel;
-      this.station.root.position.x = 0;
-      this.scenery.update(0);
+    // Place cars, stations and scenery relative to the view's anchor.
+    const anchor = this.viewS();
+    this.cars.forEach((car, k) => {
+      this.carX[k] = this.view === 'train' && k === this.riding ? 0 : this.rel(anchor, this.carS(k));
+      car.group.position.x = this.carX[k];
+      car.group.visible = Math.abs(this.carX[k]) < 200;
+      car.setDoorOpen(this.doorOpen);
+    });
+    this.stations.forEach((st, i) => {
+      const x = this.rel(anchor, i * SEGMENT);
+      st.root.position.x = x;
+      st.root.visible = Math.abs(x) < 220;
+    });
+    this.scenery.update(anchor);
+  }
+
+  private insideCar(k: number, p: THREE.Vector3): boolean {
+    return Math.abs(p.x - this.carX[k]) < CAR_HALF_LENGTH && Math.abs(p.z - RAIL_Z) < CAR_HALF_WIDTH;
+  }
+
+  /** Index of the car containing this point, or -1. */
+  carAt(p: THREE.Vector3): number {
+    return this.cars.findIndex((_, k) => this.insideCar(k, p));
+  }
+
+  isInside(p: THREE.Vector3): boolean {
+    return this.carAt(p) >= 0;
+  }
+
+  private doorsPassable(): boolean {
+    return this.view === 'station' && this.phase === 'stopped' && this.doorOpen > 0.95;
+  }
+
+  private inDoorway(localX: number, r: number): boolean {
+    return DOORS.some((c) => Math.abs(localX - c) < DOOR_WIDTH / 2 - r);
+  }
+
+  /** Keeps the player inside a car, letting them through an open door on the platform side. */
+  constrainInside(k: number, p: THREE.Vector3, r: number): void {
+    const cx = this.carX[k];
+    const lx = THREE.MathUtils.clamp(p.x - cx, -CAR_HALF_LENGTH + CAR_WALL + r, CAR_HALF_LENGTH - CAR_WALL - r);
+    p.x = cx + lx;
+    p.z = Math.min(p.z, RAIL_Z + CAR_HALF_WIDTH - CAR_WALL - r);
+    if (!(this.doorsPassable() && this.inDoorway(lx, r))) {
+      p.z = Math.max(p.z, RAIL_Z - CAR_HALF_WIDTH + CAR_WALL + r);
     }
-    this.car.group.position.x = this.carX;
-    this.car.setDoorOpen(this.doorOpen);
   }
 
   /** Seconds left in the current phase. */
@@ -133,7 +252,7 @@ export class Railway {
     return Math.max(0, CYCLE[ORDER[this.phaseIndex]] - this.phaseTime);
   }
 
-  /** Seconds until the train next stands at the station with its doors opening (0 while there). */
+  /** Seconds until the trains next stand at a station with doors opening (0 while there). */
   get secondsUntilArrival(): number {
     const i = this.phaseIndex;
     const opening = ORDER.indexOf('opening');
@@ -148,43 +267,26 @@ export class Railway {
     return ORDER[this.phaseIndex] === 'stopped' ? this.phaseLeft : 0;
   }
 
-  /** Horizontal distance from a point to where the car stands at the station (0 when inside). */
+  /** Horizontal distance from a point to where a car stands at this station (0 when inside). */
   distanceToStop(p: THREE.Vector3): number {
     const dx = Math.max(0, Math.abs(p.x) - CAR_HALF_LENGTH);
     const dz = Math.max(0, Math.abs(p.z - RAIL_Z) - CAR_HALF_WIDTH);
     return Math.hypot(dx, dz);
   }
 
-  /** Is this point inside the car (walls included)? */
-  isInside(p: THREE.Vector3): boolean {
-    return Math.abs(p.x - this.carX) < CAR_HALF_LENGTH && Math.abs(p.z - RAIL_Z) < CAR_HALF_WIDTH;
-  }
-
-  private doorsPassable(): boolean {
-    return this.view === 'station' && this.phase === 'stopped' && this.doorOpen > 0.95;
-  }
-
-  private inDoorway(localX: number, r: number): boolean {
-    return DOORS.some((c) => Math.abs(localX - c) < DOOR_WIDTH / 2 - r);
-  }
-
-  /** Keeps the player inside the car, letting them through an open door on the platform side. */
-  constrainInside(p: THREE.Vector3, r: number): void {
-    const lx = THREE.MathUtils.clamp(p.x - this.carX, -CAR_HALF_LENGTH + CAR_WALL + r, CAR_HALF_LENGTH - CAR_WALL - r);
-    p.x = this.carX + lx;
-    p.z = Math.min(p.z, RAIL_Z + CAR_HALF_WIDTH - CAR_WALL - r);
-    if (!(this.doorsPassable() && this.inDoorway(lx, r))) {
-      p.z = Math.max(p.z, RAIL_Z - CAR_HALF_WIDTH + CAR_WALL + r);
-    }
-  }
-
   /**
-   * Camera collision with the car: if the line from the look target to the camera passes
+   * Camera collision with nearby cars: if the line from the look target to the camera passes
    * through a solid part of a wall or the roof, pull the camera in to just before it.
    * Windows and open doors let the view through, so the camera never jumps sideways.
    */
   collideCamera(target: THREE.Vector3, desired: THREE.Vector3): void {
-    const ax = target.x - this.carX;
+    for (let k = 0; k < this.cars.length; k++) {
+      if (Math.abs(this.carX[k] - target.x) < CAR_HALF_LENGTH + 12) this.collideWithCar(k, target, desired);
+    }
+  }
+
+  private collideWithCar(k: number, target: THREE.Vector3, desired: THREE.Vector3): void {
+    const ax = target.x - this.carX[k];
     const ay = target.y - TRAIN_FLOOR;
     const az = target.z - RAIL_Z;
     const dx = desired.x - target.x;
@@ -209,14 +311,12 @@ export class Railway {
     };
 
     for (const side of [-1, 1]) {
-      const wz = side * W;
       if (dz !== 0) {
-        const t = (wz - az) / dz;
+        const t = (side * W - az) / dz;
         test(t, sideWallSolid(ax + dx * t, ay + dy * t, side === -1));
       }
-      const wx = side * L;
       if (dx !== 0) {
-        const t = (wx - ax) / dx;
+        const t = (side * L - ax) / dx;
         const y = ay + dy * t;
         const z = az + dz * t;
         test(t, Math.abs(z) < W && y > 0 && y < H);

@@ -1,25 +1,20 @@
-// Winter station: snowfield, a long station platform, pine groves, rocks and snow mounds.
-// Everything is code-built, unlit, and instanced where it repeats.
+// A station zone. Every station has the same size and layout (CLAUDE.md: equal station size),
+// only the season dressing differs: ground colors, trees, rocks, mounds or bushes, flowers.
 // Station content lives under one root group so the whole station can slide past the train
-// window; the sky and the far mountains are a shared backdrop that stays put.
+// window; the sky and far mountains are the shared Backdrop.
 import * as THREE from 'three';
-import { box, cylinder, jitter, merge, paint, propMaterial, seededRandom } from './lowpoly';
-import type { Zone } from './zone';
+import { box, cylinder, merge, propMaterial, seededRandom, type Track } from './lowpoly';
+import {
+  createFlowerGeometry,
+  createMoundGeometry,
+  createPineGeometry,
+  createRockGeometry,
+  createRoundTreeGeometry,
+  radialTexture,
+} from './props';
+import { PALETTES, type SeasonPalette } from './seasons';
+import type { Surface, Zone } from './zone';
 
-// Palette
-const SKY_TOP = new THREE.Color('#9fbad6');
-const HORIZON = new THREE.Color('#e3e9f0');
-const SNOW = new THREE.Color('#f8fafd');
-const MOUNTAIN_LIT = new THREE.Color('#b4c3d4');
-const MOUNTAIN_SHADE = new THREE.Color('#8ea0b6');
-const PINE = '#4d7670';
-const TRUNK = '#7a6152';
-const ROCK = '#8f98a5';
-const WOOD = '#a98d74';
-const WOOD_DARK = '#7d6655';
-const POLE = '#4a4f58';
-
-const SEED = 20261103;
 export const WORLD_RADIUS = 60;
 
 // Station layout: the platform runs along the rails (x), the village lies toward -z.
@@ -28,45 +23,86 @@ export const PLATFORM = { minX: -13, maxX: 13, minZ: 0.2, maxZ: 2.8, height: 0.1
 export const RAIL_Z = 4.95; // track center line; the car (4.2 m wide) starts at the platform edge
 const SPAWN = new THREE.Vector3(0, PLATFORM.height, 1.6);
 
+const WOOD = '#a98d74';
+const WOOD_DARK = '#7d6655';
+const POLE = '#4a4f58';
+
+export type StationSeason = 'winter' | 'spring';
+
+interface SeasonDressing {
+  name: string;
+  seed: number;
+  palette: SeasonPalette;
+  surface: Surface;
+  snowfall: boolean;
+  /** Tree kinds and how often each appears. */
+  trees: { geo: () => THREE.BufferGeometry; weight: number }[];
+  rock: { color: string; snow: boolean };
+  mound: { color: string; faceted: boolean };
+  edgeColor: string; // strip along the platform's village-side edge
+  flowers: number;
+}
+
+const DRESSING: Record<StationSeason, SeasonDressing> = {
+  winter: {
+    name: '겨울',
+    seed: 20261103,
+    palette: PALETTES.winter,
+    surface: 'snow',
+    snowfall: true,
+    trees: [{ geo: createPineGeometry, weight: 1 }],
+    rock: { color: '#8f98a5', snow: true },
+    mound: { color: '#f4f7fb', faceted: false },
+    edgeColor: '#f1f4f8',
+    flowers: 0,
+  },
+  spring: {
+    name: '봄',
+    seed: 20260402,
+    palette: PALETTES.spring,
+    surface: 'grass',
+    snowfall: false,
+    trees: [
+      { geo: () => createRoundTreeGeometry('#f2bfcd', 11), weight: 0.45 },
+      { geo: () => createRoundTreeGeometry('#8fbf72', 29), weight: 0.55 },
+    ],
+    rock: { color: '#8e968b', snow: false },
+    mound: { color: '#7fa866', faceted: true },
+    edgeColor: '#9fc283',
+    flowers: 420,
+  },
+};
+
 export interface StationZone extends Zone {
   /** Season name shown when entering, e.g. "겨울". */
   name: string;
+  season: StationSeason;
+  palette: SeasonPalette;
   /** Everything that belongs to the station (moves together when seen from a running train). */
   root: THREE.Group;
   /** While set and true for x, the rail-side edge of the platform is open (train doors). */
   railGate: ((x: number) => boolean) | null;
 }
 
-export interface Collider {
+interface Collider {
   x: number;
   z: number;
   r: number;
 }
 
-export function buildWinterScene(scene: THREE.Scene): StationZone {
-  const rand = seededRandom(SEED);
+export function buildStation(scene: THREE.Scene, season: StationSeason): StationZone {
+  const dress = DRESSING[season];
+  const rand = seededRandom(dress.seed);
   const disposables: { dispose: () => void }[] = [];
-  const track = <T extends { dispose: () => void }>(d: T): T => {
+  const track: Track = (d) => {
     disposables.push(d);
     return d;
   };
   const colliders: Collider[] = [];
 
-  scene.background = HORIZON;
-  scene.fog = new THREE.Fog(HORIZON, 20, 85);
-
-  // Shared backdrop: sky, far mountains, and plain snow that continues past the station ground.
-  const farGround = new THREE.Mesh(
-    track(new THREE.PlaneGeometry(1500, 1500)),
-    track(new THREE.MeshBasicMaterial({ color: SNOW })),
-  );
-  farGround.rotation.x = -Math.PI / 2;
-  farGround.position.y = -0.05;
-  scene.add(createSky(track), createMountains(track, rand), farGround);
-
   const root = new THREE.Group();
-  root.add(createGround(track), createStation(track, colliders));
-  root.add(...createNature(track, rand, colliders));
+  root.add(createGround(track, dress.palette), createPlatform(track, colliders, dress));
+  root.add(...createNature(track, rand, colliders, dress));
   scene.add(root);
 
   const heightAt = (x: number, z: number): number =>
@@ -96,92 +132,40 @@ export function buildWinterScene(scene: THREE.Scene): StationZone {
   };
 
   const zone: StationZone = {
-    name: '겨울',
+    name: dress.name,
+    season,
+    palette: dress.palette,
     root,
     railGate: null,
     spawn: SPAWN.clone(),
     viewYaw: Math.PI, // camera on the village side, so the player faces the train
-    snowfall: true,
+    snowfall: dress.snowfall,
     heightAt,
-    surfaceAt: (x, z) => (heightAt(x, z) > 0 ? 'wood' : 'snow'),
+    surfaceAt: (x, z) => (heightAt(x, z) > 0 ? 'wood' : dress.surface),
     constrain,
-    dispose: () => disposables.forEach((d) => d.dispose()),
+    dispose: () => {
+      scene.remove(root);
+      disposables.forEach((d) => d.dispose());
+    },
   };
   return zone;
 }
 
-export type Track = <T extends { dispose: () => void }>(d: T) => T;
-
-// Sky dome with a vertical gradient baked into vertex colors.
-export function createSky(track: Track): THREE.Mesh {
-  const geo = track(new THREE.SphereGeometry(150, 16, 12));
-  const pos = geo.attributes.position;
-  const colors = new Float32Array(pos.count * 3);
-  const c = new THREE.Color();
-  for (let i = 0; i < pos.count; i++) {
-    const t = THREE.MathUtils.clamp(pos.getY(i) / 150, 0, 1);
-    c.copy(HORIZON).lerp(SKY_TOP, Math.pow(t, 0.6));
-    c.toArray(colors, i * 3);
-  }
-  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  const mat = track(new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false }));
-  return new THREE.Mesh(geo, mat);
-}
-
-// Ring of low-poly mountains on the horizon.
-export function createMountains(track: Track, rand: () => number): THREE.InstancedMesh {
-  const geo = track(new THREE.ConeGeometry(1, 1, 5, 1).toNonIndexed());
-  geo.computeVertexNormals();
-  const normals = geo.attributes.normal;
-  const colors = new Float32Array(normals.count * 3);
-  const c = new THREE.Color();
-  const lightDir = new THREE.Vector3(-0.6, 0.5, 0.4).normalize();
-  const n = new THREE.Vector3();
-  for (let i = 0; i < normals.count; i += 3) {
-    n.fromBufferAttribute(normals, i);
-    const shade = THREE.MathUtils.clamp(n.dot(lightDir) * 0.5 + 0.5, 0, 1);
-    // Far away, so blend toward the horizon instead of relying on fog.
-    c.copy(MOUNTAIN_SHADE).lerp(MOUNTAIN_LIT, shade).lerp(HORIZON, 0.35);
-    for (let k = 0; k < 3; k++) c.toArray(colors, (i + k) * 3);
-  }
-  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
-  const count = 18;
-  const mat = track(new THREE.MeshBasicMaterial({ vertexColors: true, fog: false }));
-  const mesh = new THREE.InstancedMesh(geo, mat, count);
-  const m = new THREE.Matrix4();
-  const q = new THREE.Quaternion();
-  const s = new THREE.Vector3();
-  const p = new THREE.Vector3();
-  const up = new THREE.Vector3(0, 1, 0);
-  for (let i = 0; i < count; i++) {
-    const angle = (i / count) * Math.PI * 2 + rand() * 0.2;
-    const radius = 105 + rand() * 20;
-    const height = 14 + rand() * 16;
-    const width = 18 + rand() * 12;
-    p.set(Math.cos(angle) * radius, height / 2 - 0.5, Math.sin(angle) * radius);
-    q.setFromAxisAngle(up, rand() * Math.PI);
-    s.set(width, height, width);
-    mesh.setMatrixAt(i, m.compose(p, q, s));
-  }
-  return mesh;
-}
-
-// Snowfield with soft, large-scale color variation so movement reads on the white ground.
-function createGround(track: Track): THREE.Mesh {
+// Ground with soft, large-scale color variation so movement reads on it.
+function createGround(track: Track, palette: SeasonPalette): THREE.Mesh {
   const geo = track(new THREE.PlaneGeometry(200, 200, 60, 60));
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
   const colors = new Float32Array(pos.count * 3);
-  const shadow = new THREE.Color('#dfe6ef');
   const c = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
     const z = pos.getZ(i);
     const n =
-      Math.sin(x * 0.17 + 1.3) * Math.sin(z * 0.13 - 0.7) * 0.5 +
-      Math.sin(x * 0.07 - z * 0.05 + 2.1) * 0.5;
-    c.copy(SNOW).lerp(shadow, THREE.MathUtils.clamp(n * 0.5 + 0.5, 0, 1) * 0.6);
+      Math.sin(x * 0.17 + 1.3) * Math.sin(z * 0.13 - 0.7) * 0.5 + Math.sin(x * 0.07 - z * 0.05 + 2.1) * 0.5;
+    // Fade the variation out toward the edge so the ground meets the plain backdrop seamlessly.
+    const edge = 1 - THREE.MathUtils.smoothstep(Math.hypot(x, z), 80, 100);
+    c.copy(palette.ground).lerp(palette.groundShade, THREE.MathUtils.clamp(n * 0.5 + 0.5, 0, 1) * 0.6 * edge);
     c.toArray(colors, i * 3);
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -189,7 +173,7 @@ function createGround(track: Track): THREE.Mesh {
 }
 
 // Platform deck, bench, sign and lamp posts merged into one mesh, plus the sign text and lamp glows.
-function createStation(track: Track, colliders: Collider[]): THREE.Group {
+function createPlatform(track: Track, colliders: Collider[], dress: SeasonDressing): THREE.Group {
   const group = new THREE.Group();
   const parts: THREE.BufferGeometry[] = [];
   const top = PLATFORM.height;
@@ -201,8 +185,8 @@ function createStation(track: Track, colliders: Collider[]): THREE.Group {
     const tone = i % 3 === 0 ? WOOD_DARK : WOOD;
     parts.push(box(PLATFORM.maxX - PLATFORM.minX, top, plankDepth - 0.025, 0, top / 2, z, tone));
   }
-  // Snow drifts along the front edge.
-  parts.push(box(PLATFORM.maxX - PLATFORM.minX + 0.2, 0.07, 0.22, 0, 0.035, PLATFORM.minZ - 0.06, '#f1f4f8'));
+  // Snow drift or grass tuft along the village-side edge.
+  parts.push(box(PLATFORM.maxX - PLATFORM.minX + 0.2, 0.07, 0.22, 0, 0.035, PLATFORM.minZ - 0.06, dress.edgeColor));
 
   // Bench.
   const bx = 8.5;
@@ -222,7 +206,7 @@ function createStation(track: Track, colliders: Collider[]): THREE.Group {
   parts.push(box(1.8, 0.56, 0.08, sx, top + 1.85, sz, '#f1ead9'));
   parts.push(box(1.9, 0.08, 0.12, sx, top + 2.17, sz, '#5a6577'));
 
-  // Lamp posts at both ends.
+  // Lamp posts along the platform.
   const lamps = [
     { x: PLATFORM.minX + 0.5, z: 0.55 },
     { x: -3, z: 0.55 },
@@ -248,7 +232,7 @@ function createStation(track: Track, colliders: Collider[]): THREE.Group {
   ctx.font = "600 44px -apple-system, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif";
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('겨울역', canvas.width / 2, canvas.height / 2 + 2);
+  ctx.fillText(`${dress.name}역`, canvas.width / 2, canvas.height / 2 + 2);
   const tex = track(new THREE.CanvasTexture(canvas));
   tex.colorSpace = THREE.SRGBColorSpace;
   const label = new THREE.Mesh(
@@ -281,55 +265,6 @@ function createStation(track: Track, colliders: Collider[]): THREE.Group {
   return group;
 }
 
-export function radialTexture(inner: string, outer: string): THREE.CanvasTexture {
-  const size = 64;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
-  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  grad.addColorStop(0, inner);
-  grad.addColorStop(1, outer);
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, size, size);
-  return new THREE.CanvasTexture(canvas);
-}
-
-// Pine tree: trunk, three tiers of foliage, each topped with a snow cap.
-export function createPineGeometry(): THREE.BufferGeometry {
-  const parts: THREE.BufferGeometry[] = [];
-  const trunk = new THREE.CylinderGeometry(0.11, 0.15, 0.6, 5);
-  trunk.translate(0, 0.3, 0);
-  parts.push(paint(trunk, TRUNK));
-
-  const tiers = [
-    { r: 1.0, h: 1.3, y: 0.45 },
-    { r: 0.78, h: 1.1, y: 1.15 },
-    { r: 0.52, h: 0.95, y: 1.8 },
-  ];
-  for (const t of tiers) {
-    const cone = new THREE.ConeGeometry(t.r, t.h, 7);
-    cone.translate(0, t.y + t.h / 2, 0);
-    parts.push(paint(cone, PINE, { min: 0.62 }));
-    const cap = new THREE.ConeGeometry(t.r * 0.62, t.h * 0.42, 7);
-    cap.translate(0, t.y + t.h - (t.h * 0.42) / 2 + 0.01, 0);
-    parts.push(paint(cap, '#f3f6fa', { min: 0.82 }));
-  }
-  return merge(parts);
-}
-
-function createRockGeometry(rand: () => number): THREE.BufferGeometry {
-  const g = jitter(new THREE.IcosahedronGeometry(1, 0), 0.45, rand);
-  g.scale(1, 0.62, 1);
-  g.translate(0, 0.2, 0);
-  return paint(g, ROCK, { snowAbove: 0.55, min: 0.66 });
-}
-
-function createMoundGeometry(): THREE.BufferGeometry {
-  const g = new THREE.SphereGeometry(1, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2);
-  g.scale(1, 0.38, 1);
-  return paint(g, '#f4f7fb', { flat: false, min: 0.86 });
-}
-
 /** Keep the station, the rails and a path into the village clear of props. */
 function isReserved(x: number, z: number, margin: number): boolean {
   const nearStation = x > PLATFORM.minX - 2 - margin && x < PLATFORM.maxX + 2 + margin && z > -2.5 - margin;
@@ -338,7 +273,12 @@ function isReserved(x: number, z: number, margin: number): boolean {
   return nearStation || railBand || path;
 }
 
-function createNature(track: Track, rand: () => number, colliders: Collider[]): THREE.Object3D[] {
+function createNature(
+  track: Track,
+  rand: () => number,
+  colliders: Collider[],
+  dress: SeasonDressing,
+): THREE.Object3D[] {
   const placed: { x: number; z: number; r: number }[] = [];
   const tryPlace = (minR: number, maxR: number, spacing: number, margin: number) => {
     for (let attempt = 0; attempt < 40; attempt++) {
@@ -359,7 +299,7 @@ function createNature(track: Track, rand: () => number, colliders: Collider[]): 
   const p = new THREE.Vector3();
   const up = new THREE.Vector3(0, 1, 0);
 
-  // Pine trees inside the walkable area: small groves with open meadows between them,
+  // Trees inside the walkable area: small groves with open meadows between them,
   // plus a few lone trees.
   const treeSpots: { x: number; z: number; scale: number }[] = [];
   const addTree = (x: number, z: number, scale: number) => {
@@ -410,10 +350,24 @@ function createNature(track: Track, rand: () => number, colliders: Collider[]): 
     placed.push({ ...spot, r: 0.7 * scale });
     treeSpots.push({ ...spot, scale });
   }
-  const trees = new THREE.InstancedMesh(track(createPineGeometry()), propMaterial, treeSpots.length);
-  treeSpots.forEach((t, i) => {
-    q.setFromAxisAngle(up, rand() * Math.PI * 2);
-    trees.setMatrixAt(i, m.compose(p.set(t.x, 0, t.z), q, s.setScalar(t.scale)));
+
+  // Split the spots between tree kinds by weight (one instanced mesh per kind).
+  const total = dress.trees.reduce((sum, t) => sum + t.weight, 0);
+  const buckets: { x: number; z: number; scale: number; rot: number }[][] = dress.trees.map(() => []);
+  for (const t of treeSpots) {
+    let pick = rand() * total;
+    let k = 0;
+    while (k < dress.trees.length - 1 && (pick -= dress.trees[k].weight) > 0) k++;
+    buckets[k].push({ ...t, rot: rand() * Math.PI * 2 });
+  }
+  const treeMeshes = dress.trees.map((kind, k) => {
+    const mesh = new THREE.InstancedMesh(track(kind.geo()), propMaterial, Math.max(1, buckets[k].length));
+    mesh.count = buckets[k].length;
+    buckets[k].forEach((t, i) => {
+      q.setFromAxisAngle(up, t.rot);
+      mesh.setMatrixAt(i, m.compose(p.set(t.x, 0, t.z), q, s.setScalar(t.scale)));
+    });
+    return mesh;
   });
 
   // Rocks.
@@ -426,27 +380,64 @@ function createNature(track: Track, rand: () => number, colliders: Collider[]): 
     rockSpots.push({ ...spot, scale });
     colliders.push({ x: spot.x, z: spot.z, r: scale * 0.85 });
   }
-  const rocks = new THREE.InstancedMesh(track(createRockGeometry(rand)), propMaterial, rockSpots.length);
+  const rocks = new THREE.InstancedMesh(
+    track(createRockGeometry(rand, dress.rock.snow, dress.rock.color)),
+    propMaterial,
+    rockSpots.length,
+  );
   rockSpots.forEach((r, i) => {
     q.setFromAxisAngle(up, rand() * Math.PI * 2);
     rocks.setMatrixAt(i, m.compose(p.set(r.x, 0, r.z), q, s.set(r.scale, r.scale, r.scale)));
   });
 
-  // Low snow mounds that shape the ground; the character walks around them.
+  // Low mounds (snow) or bushes (spring); the character walks around them.
   const moundSpots: { x: number; z: number; scale: number }[] = [];
   for (let i = 0; i < 28; i++) {
     const spot = tryPlace(6, WORLD_RADIUS - 2, 1.5, 1.0);
     if (!spot) continue;
-    const scale = 1.2 + rand() * 2.0;
+    const scale = dress.mound.faceted ? 0.7 + rand() * 0.9 : 1.2 + rand() * 2.0;
     placed.push({ ...spot, r: scale * 0.8 });
     moundSpots.push({ ...spot, scale });
     colliders.push({ x: spot.x, z: spot.z, r: scale * 0.85 });
   }
-  const mounds = new THREE.InstancedMesh(track(createMoundGeometry()), propMaterial, moundSpots.length);
+  const mounds = new THREE.InstancedMesh(
+    track(createMoundGeometry(dress.mound.color, dress.mound.faceted)),
+    propMaterial,
+    moundSpots.length,
+  );
   moundSpots.forEach((d, i) => {
-    q.identity();
-    mounds.setMatrixAt(i, m.compose(p.set(d.x, -0.05, d.z), q, s.set(d.scale, d.scale * 0.8, d.scale)));
+    q.setFromAxisAngle(up, rand() * Math.PI * 2);
+    const h = dress.mound.faceted ? 1.6 : 0.8; // bushes stand taller than snow mounds
+    mounds.setMatrixAt(i, m.compose(p.set(d.x, -0.05, d.z), q, s.set(d.scale, d.scale * h, d.scale)));
   });
 
-  return [trees, rocks, mounds];
+  const out: THREE.Object3D[] = [...treeMeshes, rocks, mounds];
+
+  // Wildflowers scattered in loose drifts; no collision, you walk through them.
+  if (dress.flowers > 0) {
+    const flowers = new THREE.InstancedMesh(track(createFlowerGeometry()), propMaterial, dress.flowers);
+    const tints = ['#ffffff', '#ffe58a', '#f6b8c8', '#c9b6e8', '#ffd1a6'].map((c) => new THREE.Color(c));
+    let n = 0;
+    while (n < dress.flowers) {
+      // Drift center, then a handful of flowers around it.
+      const center = tryPlace(4, WORLD_RADIUS - 2, 0, 0.3);
+      if (!center) break;
+      const tint = tints[Math.floor(rand() * tints.length)];
+      for (let i = 0; i < 12 && n < dress.flowers; i++) {
+        const a = rand() * Math.PI * 2;
+        const d = Math.sqrt(rand()) * 2.2;
+        const x = center.x + Math.cos(a) * d;
+        const z = center.z + Math.sin(a) * d;
+        if (isReserved(x, z, 0)) continue;
+        q.setFromAxisAngle(up, rand() * Math.PI);
+        flowers.setMatrixAt(n, m.compose(p.set(x, 0, z), q, s.setScalar(0.8 + rand() * 0.6)));
+        flowers.setColorAt(n, tint);
+        n++;
+      }
+    }
+    flowers.count = n;
+    out.push(flowers);
+  }
+
+  return out;
 }

@@ -8,7 +8,9 @@ import { DoorTimer } from './ui/doorTimer';
 import { setupDebugStats } from './systems/debugStats';
 import { Input } from './controls/input';
 import { ThirdPersonCamera } from './controls/ThirdPersonCamera';
-import { buildWinterScene, type Track } from './scenes/winter';
+import { buildStation } from './scenes/station';
+import { Backdrop } from './scenes/backdrop';
+import type { Track } from './scenes/lowpoly';
 import { Railway, TRAIN_FLOOR } from './systems/railway';
 import { Footprints } from './systems/footprints';
 import { Snowfall } from './systems/snowfall';
@@ -35,12 +37,18 @@ const track: Track = (d) => {
   disposables.push(d);
   return d;
 };
-const world = buildWinterScene(scene);
-const railway = new Railway(scene, track, world);
-const SPAWN = world.spawn;
+// Stations in line order. The loop runs winter -> spring -> back to winter for now;
+// the full line will be spring -> summer -> autumn -> winter -> spring (CLAUDE.md).
+const stations = [buildStation(scene, 'winter'), buildStation(scene, 'spring')];
+const winter = stations[0];
+const backdrop = new Backdrop(scene, track, winter.palette);
+const railway = new Railway(scene, track, stations);
+// Dev only: ?station=1 starts at the second station (spring) for quick checks.
+if (import.meta.env.DEV && params.has('station')) railway.startAt(Number(params.get('station')));
+const SPAWN = winter.spawn;
 const footprints = new Footprints();
 const snowfall = new Snowfall();
-world.root.add(footprints.mesh); // prints belong to the station and travel with it
+winter.root.add(footprints.mesh); // prints belong to the station and travel with it
 scene.add(snowfall.points);
 let onBoardTrain = false; // player is inside the car
 
@@ -59,7 +67,7 @@ function formatWait(seconds: number): string {
 
 /** Name of the station the train is heading to. Only one station on the test loop for now. */
 function nextStation(): string {
-  return world.name;
+  return railway.nextStation.name;
 }
 
 /** What the small train note says right now, or null to hide it. */
@@ -82,9 +90,9 @@ function trainNotice(): string | null {
         : `다음 열차까지 ${formatWait(railway.secondsUntilArrival)}`;
   }
 }
-railway.onArrive = () => {
+railway.onArrive = (station) => {
   // Only for riders: someone waiting on the platform hasn't entered a new zone.
-  if (boarded && onBoardTrain) banner.show(world.name);
+  if (boarded && onBoardTrain) banner.show(station.name);
 };
 
 // Player character with a random look on every visit.
@@ -100,14 +108,17 @@ const footPos = new THREE.Vector3();
 player.onStep = (foot) => {
   if (!boarded) return;
   player.footWorldPosition(foot, footPos);
-  const onWood = onBoardTrain || world.surfaceAt(footPos.x, footPos.z) === 'wood';
-  audio.step(walkSpeed, onWood);
-  if (!onWood) footprints.add(footPos.x - world.root.position.x, footPos.z, player.root.rotation.y);
+  const here = railway.station;
+  const surface = onBoardTrain ? 'wood' : here.surfaceAt(footPos.x, footPos.z);
+  audio.step(walkSpeed, surface);
+  if (surface === 'snow' && here === winter) {
+    footprints.add(footPos.x - winter.root.position.x, footPos.z, player.root.rotation.y);
+  }
 };
 
 // Camera framing: close-up while choosing, third-person follow after boarding.
 const ENTRANCE_CAM = {
-  pos: SPAWN.clone().add(new THREE.Vector3(Math.sin(world.viewYaw) * 3, 0.85, Math.cos(world.viewYaw) * 3)),
+  pos: SPAWN.clone().add(new THREE.Vector3(Math.sin(winter.viewYaw) * 3, 0.85, Math.cos(winter.viewYaw) * 3)),
   target: SPAWN.clone().add(new THREE.Vector3(0, 0.52, 0)),
 };
 let boarded = false;
@@ -119,7 +130,7 @@ camera.lookAt(camTarget);
 
 const input = new Input(container);
 const followCam = new ThirdPersonCamera(camera);
-followCam.yaw = world.viewYaw;
+followCam.yaw = winter.viewYaw;
 followCam.collide = (target, desired) => railway.collideCamera(target, desired);
 
 const entrance = new Entrance({
@@ -133,7 +144,7 @@ const entrance = new Entrance({
     input.enabled = true;
     audio.start(); // inside the tap handler, so mobile browsers allow sound
     followCam.begin(camTarget);
-    window.setTimeout(() => banner.show(world.name), 900); // after the entrance panel fades
+    window.setTimeout(() => banner.show(railway.station.name), 900); // after the entrance panel fades
   },
 });
 
@@ -179,7 +190,7 @@ const PLAYER_RADIUS = 0.3;
 const tmpForward = new THREE.Vector3();
 const tmpRight = new THREE.Vector3();
 const moveDir = new THREE.Vector3();
-let facing = world.viewYaw + Math.PI; // after boarding the character turns its back to the camera
+let facing = winter.viewYaw + Math.PI; // after boarding the character turns its back to the camera
 
 // Dev only: ?overview shows the whole layout from above.
 const OVERVIEW = import.meta.env.DEV && params.has('overview');
@@ -220,13 +231,13 @@ renderer.setAnimationLoop(() => {
 
     // Every frame, not only while moving: closing doors must push a player out of the doorway.
     const p = player.root.position;
-    onBoardTrain = railway.isInside(p);
-    if (onBoardTrain) railway.constrainInside(p, PLAYER_RADIUS);
-    else world.constrain(p, PLAYER_RADIUS);
+    const car = railway.carAt(p);
+    if (car >= 0) railway.constrainInside(car, p, PLAYER_RADIUS);
+    else railway.station.constrain(p, PLAYER_RADIUS);
     onBoardTrain = railway.isInside(p);
 
     // Step up onto / down from the platform and the car floor smoothly.
-    const ground = onBoardTrain ? TRAIN_FLOOR : world.heightAt(p.x, p.z);
+    const ground = onBoardTrain ? TRAIN_FLOOR : railway.station.heightAt(p.x, p.z);
     p.y = THREE.MathUtils.damp(p.y, ground, 14, dt);
 
     const goal = nearestAngle(player.root.rotation.y, facing);
@@ -246,8 +257,12 @@ renderer.setAnimationLoop(() => {
   player.update(dt, speed);
   railway.update(dt, player.root.position);
   doorTimer.update(trainNotice());
+  // Sky, ground and snowfall follow the season of wherever the view is on the line.
+  const season = railway.viewSeason;
+  backdrop.setPalette(season.palette);
   const indoors = railway.isInside(camera.position);
-  snowfall.points.visible = !indoors;
+  snowfall.setIntensity(season.winter);
+  snowfall.points.visible = !indoors && season.winter > 0.01;
   audio.setIndoor(onBoardTrain && railway.doorOpen < 0.5);
   audio.update(dt);
   footprints.update(dt);

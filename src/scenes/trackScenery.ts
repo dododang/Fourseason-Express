@@ -1,18 +1,37 @@
-// Scenery along the railway: rails, sleepers, pines and telegraph poles, built in 120 m chunks.
+// Scenery along the railway: ground, rails, sleepers, trees and telegraph poles in 120 m chunks.
 // Three chunks are placed around the current view position along the track. The line is a loop
-// of LOOP meters, a multiple of three chunks, so the scenery repeats seamlessly.
+// whose length is a multiple of three chunks, so the scenery repeats seamlessly.
+// The season blends between stations: ground color and the mix of tree kinds follow `seasonAt`.
 // Trees near a station are hidden so they don't clash with the station's own layout.
 import * as THREE from 'three';
-import { box, cylinder, merge, propMaterial, seededRandom } from './lowpoly';
-import type { Track } from './winter';
+import { box, cylinder, merge, propMaterial, seededRandom, type Track } from './lowpoly';
+import { createPineGeometry, createRoundTreeGeometry } from './props';
+import type { SeasonPalette } from './seasons';
 
 export const CHUNK = 120;
 const STATION_CLEARANCE = 80; // no scenery trees within this distance of a station along the track
+const GROUND_WIDTH = 200;
+const GROUND_STEPS = 12; // color samples along a chunk
+
+/** Season mix at a track position: palette plus how wintry (pines) vs springlike (round trees) it is. */
+export interface SeasonSample {
+  palette: SeasonPalette;
+  winter: number; // 0..1, the rest is spring
+}
+
+interface TreeSlot {
+  x: number;
+  z: number;
+  rot: number;
+  scale: number;
+  pick: number; // fixed random 0..1 deciding the kind for a given season mix
+}
 
 interface ChunkMesh {
   group: THREE.Group;
-  trees: THREE.InstancedMesh;
-  treeLocal: { x: number; z: number; rot: number; scale: number }[];
+  ground: THREE.Mesh;
+  kinds: THREE.InstancedMesh[]; // pine, green round tree, blossom tree
+  slots: TreeSlot[];
   index: number | null; // which chunk of the track it currently shows
 }
 
@@ -23,34 +42,47 @@ export class TrackScenery {
   private q = new THREE.Quaternion();
   private p = new THREE.Vector3();
   private s = new THREE.Vector3();
+  private zero = new THREE.Vector3(0, 0, 0);
   private up = new THREE.Vector3(0, 1, 0);
 
-  /** `stations`: track positions of the stations; `loop`: track length (multiple of 3 chunks). */
   constructor(
     track: Track,
-    pineGeo: THREE.BufferGeometry,
     private loop: number,
     private stations: number[],
+    private seasonAt: (u: number) => SeasonSample,
   ) {
     const rand = seededRandom(41);
-
     const railGeo = track(
       merge([
-        box(CHUNK, 0.02, 2.2, 0, 0.01, 0, '#c9d0d9'), // gravel bed
-        box(CHUNK, 0.04, 0.07, 0, 0.04, -0.6, '#6f7782'),
-        box(CHUNK, 0.04, 0.07, 0, 0.04, 0.6, '#6f7782'),
+        box(CHUNK, 0.02, 2.2, CHUNK / 2, 0.01, 0, '#c9d0d9'), // gravel bed
+        box(CHUNK, 0.04, 0.07, CHUNK / 2, 0.04, -0.6, '#6f7782'),
+        box(CHUNK, 0.04, 0.07, CHUNK / 2, 0.04, 0.6, '#6f7782'),
       ]),
     );
     const sleeperGeo = track(box(0.28, 0.025, 1.6, 0, 0.0125, 0, '#6d5a4c'));
     const poleGeo = track(
       merge([cylinder(0.08, 6.5, 0, 3.25, 0, '#6b5848'), box(0.08, 0.08, 1.2, 0, 5.2, 0, '#6b5848')]),
     );
+    const treeGeos = [
+      track(createPineGeometry()),
+      track(createRoundTreeGeometry('#8fbf72', 29)),
+      track(createRoundTreeGeometry('#f2bfcd', 11)),
+    ];
 
     for (let c = 0; c < 3; c++) {
       const group = new THREE.Group();
-      const rails = new THREE.Mesh(railGeo, propMaterial);
-      rails.position.x = CHUNK / 2;
-      group.add(rails);
+
+      // Ground strip under this chunk, colored per season along its length.
+      const groundGeo = track(new THREE.PlaneGeometry(CHUNK, GROUND_WIDTH, GROUND_STEPS, 1));
+      groundGeo.rotateX(-Math.PI / 2);
+      groundGeo.translate(CHUNK / 2, 0, 0);
+      groundGeo.setAttribute(
+        'color',
+        new THREE.BufferAttribute(new Float32Array(groundGeo.attributes.position.count * 3), 3),
+      );
+      const ground = new THREE.Mesh(groundGeo, track(new THREE.MeshBasicMaterial({ vertexColors: true })));
+      ground.position.y = -0.03; // above the plain backdrop, below every station's own ground
+      group.add(ground, new THREE.Mesh(railGeo, propMaterial));
 
       const sleeperCount = CHUNK / 0.8;
       const sleepers = new THREE.InstancedMesh(sleeperGeo, propMaterial, sleeperCount);
@@ -61,23 +93,27 @@ export class TrackScenery {
       for (let i = 0; i < CHUNK / 30; i++) poles.setMatrixAt(i, this.m.makeTranslation(i * 30 + 15, 0, 5.5));
       group.add(poles);
 
-      // Pines on both sides, more far away than close.
-      const treeLocal = [];
+      // Tree slots on both sides, more far away than close. Each slot shows one kind at a time.
+      const slots: TreeSlot[] = [];
       for (let i = 0; i < 90; i++) {
         const side = rand() < 0.5 ? -1 : 1;
-        treeLocal.push({
+        slots.push({
           x: rand() * CHUNK,
           z: side * (9 + Math.pow(rand(), 0.7) * 55),
           rot: rand() * Math.PI * 2,
           scale: 1.0 + rand() * 1.0,
+          pick: rand(),
         });
       }
-      const trees = new THREE.InstancedMesh(pineGeo, propMaterial, treeLocal.length);
-      trees.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      group.add(trees);
+      const kinds = treeGeos.map((geo) => {
+        const mesh = new THREE.InstancedMesh(geo, propMaterial, slots.length);
+        mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        group.add(mesh);
+        return mesh;
+      });
 
       this.root.add(group);
-      this.chunks.push({ group, trees, treeLocal, index: null });
+      this.chunks.push({ group, ground, kinds, slots, index: null });
     }
   }
 
@@ -89,22 +125,42 @@ export class TrackScenery {
       chunk.group.position.x = k * CHUNK - viewS;
       if (chunk.index !== k) {
         chunk.index = k;
-        this.layoutTrees(chunk, k * CHUNK);
+        this.layout(chunk, k * CHUNK);
       }
     }
   }
 
-  private layoutTrees(chunk: ChunkMesh, start: number): void {
-    chunk.treeLocal.forEach((t, i) => {
-      const u = start + t.x;
+  private wrap(u: number): number {
+    return ((u % this.loop) + this.loop) % this.loop;
+  }
+
+  private layout(chunk: ChunkMesh, start: number): void {
+    // Ground colors along the chunk.
+    const pos = chunk.ground.geometry.attributes.position;
+    const col = chunk.ground.geometry.attributes.color as THREE.BufferAttribute;
+    for (let i = 0; i < pos.count; i++) {
+      const c = this.seasonAt(this.wrap(start + pos.getX(i))).palette.ground;
+      col.setXYZ(i, c.r, c.g, c.b);
+    }
+    col.needsUpdate = true;
+
+    // Trees: hide near stations; otherwise pick the kind from the local season mix.
+    chunk.slots.forEach((t, i) => {
+      const u = this.wrap(start + t.x);
       const nearStation = this.stations.some((st) => {
         const d = ((((u - st) % this.loop) + this.loop * 1.5) % this.loop) - this.loop / 2;
         return Math.abs(d) < STATION_CLEARANCE;
       });
+      const { winter } = this.seasonAt(u);
+      // Pines where it is wintry; in spring, mostly green trees with some blossoms.
+      const kind = t.pick < winter ? 0 : t.pick < winter + (1 - winter) * 0.6 ? 1 : 2;
       this.q.setFromAxisAngle(this.up, t.rot);
-      this.s.setScalar(nearStation ? 0 : t.scale);
-      chunk.trees.setMatrixAt(i, this.m.compose(this.p.set(t.x, 0, t.z), this.q, this.s));
+      chunk.kinds.forEach((mesh, k) => {
+        const show = !nearStation && k === kind;
+        this.s.setScalar(show ? t.scale : 0);
+        mesh.setMatrixAt(i, this.m.compose(show ? this.p.set(t.x, 0, t.z) : this.zero, this.q, this.s));
+      });
     });
-    chunk.trees.instanceMatrix.needsUpdate = true;
+    for (const mesh of chunk.kinds) mesh.instanceMatrix.needsUpdate = true;
   }
 }
