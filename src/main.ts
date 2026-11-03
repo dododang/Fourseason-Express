@@ -9,6 +9,7 @@ import { ThirdPersonCamera } from './controls/ThirdPersonCamera';
 import { buildWinterScene, SPAWN } from './scenes/winter';
 import { Footprints } from './systems/footprints';
 import { Snowfall } from './systems/snowfall';
+import { WinterAudio } from './audio/WinterAudio';
 
 const container = document.getElementById('app')!;
 
@@ -35,13 +36,17 @@ const player = new Character(randomLook());
 player.root.position.copy(SPAWN);
 scene.add(player.root);
 
-// Each step leaves a print in the snow (not on the wooden platform).
+const audio = new WinterAudio();
+let walkSpeed = 0;
+
+// Each step plays a footstep sound and leaves a print in the snow (not on the wooden platform).
 const footPos = new THREE.Vector3();
 player.onStep = (foot) => {
   if (!boarded) return;
   player.footWorldPosition(foot, footPos);
-  if (world.heightAt(footPos.x, footPos.z) > 0) return;
-  footprints.add(footPos.x, footPos.z, player.root.rotation.y);
+  const onWood = world.heightAt(footPos.x, footPos.z) > 0;
+  audio.step(walkSpeed, onWood);
+  if (!onWood) footprints.add(footPos.x, footPos.z, player.root.rotation.y);
 };
 
 // Camera framing: close-up while choosing, third-person follow after boarding.
@@ -68,6 +73,7 @@ const entrance = new Entrance({
   onBoard: () => {
     boarded = true;
     input.enabled = true;
+    audio.start(); // inside the tap handler, so mobile browsers allow sound
     followCam.begin(camTarget);
   },
 });
@@ -163,7 +169,9 @@ renderer.setAnimationLoop(() => {
   viewShift.lerp(targetViewShift(), 1 - Math.exp(-4 * dt));
   applyViewShift();
 
+  walkSpeed = speed;
   player.update(dt, speed);
+  audio.update(dt);
   footprints.update(dt);
   snowfall.update(dt, camera);
   if (OVERVIEW) {
