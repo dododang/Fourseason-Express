@@ -39,7 +39,6 @@ const PIER_INNER = 0.62; // pier deck starts this far from the centerline (the m
 const PIER_HALF_WIDTH = 0.7;
 const PIER_HEIGHT = 0.2;
 const PATH_START = new THREE.Vector2(0, -12); // where the straight path from the platform ends
-const STATION_SIGN = new THREE.Vector2(3.2, -1.3); // beside the path, just behind the platform
 
 /** Half the water width at sample k (samples are 1 m apart): gently wider and narrower along the way. */
 function halfWidth(k: number): number {
@@ -55,23 +54,12 @@ export interface Pier {
   tangent: THREE.Vector2; // downstream
   /** Where someone stepping off the boat stands. */
   stand: THREE.Vector2;
-}
-
-/** A signpost you can be carried from to its partner (with a soft fade), e.g. station ↔ dock. */
-export interface Signpost {
-  pos: THREE.Vector2;
-  /** Button label when standing near it. */
-  label: string;
-  /** Where you arrive at this sign when coming from its partner, and which way you face. */
-  arrive: THREE.Vector2;
-  arriveFacing: number;
-  partner: Signpost | null;
+  /** On the grass just past the pier's bank end. */
+  bankEnd: THREE.Vector2;
 }
 
 export interface Creek {
   objects: THREE.Object3D[];
-  /** Station ↔ dock signposts. */
-  signs: Signpost[];
   /** Centerline length (m). */
   length: number;
   dock: Pier;
@@ -169,6 +157,7 @@ export function createCreek(track: Track, rand: () => number): Creek {
       normal,
       tangent: tangentAt(points, k),
       stand: points[k].clone().addScaledVector(normal, PIER_INNER + 0.45),
+      bankEnd: points[k].clone().addScaledVector(normal, PIER_INNER + length + 0.9),
       length,
     };
   };
@@ -261,35 +250,9 @@ export function createCreek(track: Track, rand: () => number): Creek {
     return Math.sqrt(best) - widths[bestK];
   };
 
-  // Signposts: one beside the platform path, one on the bank at the dock.
-  const dockPier = piers[0];
-  const dockBank = dockPier.center.clone().addScaledVector(dockPier.normal, PIER_INNER + dockPier.length + 0.9);
-  const stationSign: Signpost = {
-    pos: STATION_SIGN.clone(),
-    label: '선착장으로 가기',
-    arrive: new THREE.Vector2(1.4, -1.5),
-    arriveFacing: 0, // toward the platform and the train
-    partner: null,
-  };
-  const dockSign: Signpost = {
-    pos: dockBank.clone().addScaledVector(dockPier.tangent, 2.1),
-    label: '역으로 가기',
-    arrive: dockBank,
-    arriveFacing: Math.atan2(-dockPier.normal.x, -dockPier.normal.y), // looking out along the pier
-    partner: stationSign,
-  };
-  stationSign.partner = dockSign;
-  const signs = [stationSign, dockSign];
-  const signMeshes = [
-    createSignpost(track, stationSign.pos, 0, '선착장'),
-    createSignpost(track, dockSign.pos, Math.atan2(dockPier.normal.x, dockPier.normal.y), '역'),
-  ];
-  for (const sign of signs) colliders.push({ x: sign.pos.x, z: sign.pos.y, r: 0.15 });
-
   const tmp = new THREE.Vector2();
   return {
-    objects: [bankMesh, waterMesh, pebbles, bridgeMesh, ...pierMeshes, ...signMeshes],
-    signs,
+    objects: [bankMesh, waterMesh, pebbles, bridgeMesh, ...pierMeshes],
     length: (points.length - 1) * spacing,
     dock: piers[0],
     landing: piers[1],
@@ -512,48 +475,4 @@ function createPier(
     r: 0.1,
   }));
   return { mesh: new THREE.Mesh(geo, propMaterial), colliders };
-}
-
-/** A small wooden signpost with a name board, readable from both sides. `yaw` turns the board. */
-function createSignpost(track: Track, pos: THREE.Vector2, yaw: number, text: string): THREE.Group {
-  const group = new THREE.Group();
-  group.position.set(pos.x, 0, pos.y);
-  group.rotation.y = yaw;
-  group.add(
-    new THREE.Mesh(
-      track(
-        merge([
-          // Two thin posts at the board's ends, so neither face is covered.
-          box(0.07, 1.25, 0.07, -0.39, 0.62, 0, '#7d6655'),
-          box(0.07, 1.25, 0.07, 0.39, 0.62, 0, '#7d6655'),
-          box(0.72, 0.36, 0.06, 0, 1.08, 0, '#e8dcc4'),
-          box(0.92, 0.05, 0.09, 0, 1.28, 0, '#8f735d'),
-        ]),
-      ),
-      propMaterial,
-    ),
-  );
-
-  const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 104;
-  const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#e8dcc4';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = '#5a4a3e';
-  ctx.font = "600 46px -apple-system, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif";
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 2);
-  const tex = track(new THREE.CanvasTexture(canvas));
-  tex.colorSpace = THREE.SRGBColorSpace;
-  const mat = track(new THREE.MeshBasicMaterial({ map: tex }));
-  const geo = track(new THREE.PlaneGeometry(0.68, 0.3));
-  for (const side of [1, -1]) {
-    const label = new THREE.Mesh(geo, mat);
-    label.position.set(0, 1.08, side * 0.045); // clear of the board face, even far away
-    if (side < 0) label.rotation.y = Math.PI;
-    group.add(label);
-  }
-  return group;
 }

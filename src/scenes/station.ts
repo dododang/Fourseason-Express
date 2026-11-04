@@ -13,6 +13,8 @@ import {
   radialTexture,
 } from './props';
 import { createCreek, type Creek } from './creek';
+import { createZipline, type Zipline } from './zipline';
+import { createSignposts, type Signpost } from './signposts';
 import { PALETTES, type SeasonPalette } from './seasons';
 import type { Surface, Zone } from './zone';
 
@@ -89,6 +91,10 @@ export interface StationZone extends Zone {
   railGate: ((x: number) => boolean) | null;
   /** The stream, if this station has one (local coordinates, relative to root). */
   creek: Creek | null;
+  /** The zipline from the boat landing back toward the dock (with the creek). */
+  zipline: Zipline | null;
+  /** Signposts that carry you between the platform, the dock and the zipline. */
+  signs: Signpost[];
 }
 
 interface Collider {
@@ -115,7 +121,17 @@ export function buildStation(scene: THREE.Scene, season: StationSeason): Station
     root.add(...creek.objects);
     colliders.push(...creek.colliders);
   }
-  root.add(...createNature(track, rand, colliders, dress, creek));
+  const zipline = creek ? createZipline(track) : null;
+  if (zipline) {
+    root.add(...zipline.objects);
+    colliders.push(...zipline.colliders);
+  }
+  const signposts = creek && zipline ? createSignposts(track, creek, zipline) : null;
+  if (signposts) {
+    root.add(...signposts.objects);
+    colliders.push(...signposts.colliders);
+  }
+  root.add(...createNature(track, rand, colliders, dress, creek, zipline));
   scene.add(root);
 
   const heightAt = (x: number, z: number): number => {
@@ -167,6 +183,8 @@ export function buildStation(scene: THREE.Scene, season: StationSeason): Station
     root,
     railGate: null,
     creek,
+    zipline,
+    signs: signposts?.signs ?? [],
     spawn: SPAWN.clone(),
     viewYaw: Math.PI, // camera on the village side, so the player faces the train
     snowfall: dress.snowfall,
@@ -310,9 +328,12 @@ function createNature(
   colliders: Collider[],
   dress: SeasonDressing,
   creek: Creek | null,
+  zipline: Zipline | null,
 ): THREE.Object3D[] {
   const isReserved = (x: number, z: number, margin: number) =>
-    isStationReserved(x, z, margin) || (creek !== null && creek.reserved(x, z, margin));
+    isStationReserved(x, z, margin) ||
+    (creek !== null && creek.reserved(x, z, margin)) ||
+    (zipline !== null && zipline.reserved(x, z, margin));
   const placed: { x: number; z: number; r: number }[] = [];
   const tryPlace = (minR: number, maxR: number, spacing: number, margin: number) => {
     for (let attempt = 0; attempt < 40; attempt++) {

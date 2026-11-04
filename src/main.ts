@@ -19,6 +19,7 @@ import { Snowfall } from './systems/snowfall';
 import { StationAudio } from './audio/StationAudio';
 import { AdaptiveQuality } from './systems/adaptiveQuality';
 import { BoatRide } from './systems/boatRide';
+import { ZiplineRide } from './systems/ziplineRide';
 
 const container = document.getElementById('app')!;
 
@@ -60,6 +61,17 @@ const boatStation = stations.find((st) => st.creek)!;
 const boat = new BoatRide(boatStation.creek!, track);
 boatStation.root.add(boat.mesh);
 let inBoat = false;
+
+// Zipline from the boat landing back toward the dock.
+const zip = new ZiplineRide(boatStation.zipline!, track);
+boatStation.root.add(zip.mesh);
+let onZip = false;
+zip.onArrive = () => {
+  // Step down from the seat: keep the spot, the ground follow below drops the feet down gently.
+  onZip = false;
+  player.seated = false;
+  player.root.rotation.x = 0;
+};
 const BOARD_RANGE = 2.2; // m from the pier's standing spot
 const SIGN_RANGE = 1.6; // m from a signpost
 const fade = new ScreenFade();
@@ -110,6 +122,7 @@ railway.onArrive = (station) => {
 // Player character with a random look on every visit.
 const player = new Character(randomLook());
 player.root.position.copy(SPAWN);
+player.root.rotation.order = 'YXZ'; // seat sway tilts around the facing direction
 scene.add(player.root);
 
 const audio = new StationAudio();
@@ -130,11 +143,18 @@ function nearSign() {
   if (!boatHere() || onBoardTrain) return undefined;
   const x = player.root.position.x - boatStation.root.position.x;
   const z = player.root.position.z - boatStation.root.position.z;
-  return boatStation.creek!.signs.find((sign) => Math.hypot(x - sign.pos.x, z - sign.pos.y) < SIGN_RANGE);
+  return boatStation.signs.find((sign) => Math.hypot(x - sign.pos.x, z - sign.pos.y) < SIGN_RANGE);
+}
+function nearZipline(): boolean {
+  const spot = boatStation.zipline!.boardSpot;
+  const x = player.root.position.x - boatStation.root.position.x;
+  const z = player.root.position.z - boatStation.root.position.z;
+  return Math.hypot(x - spot.x, z - spot.y) < BOARD_RANGE;
 }
 function actionLabel(): string | null {
-  if (!boarded || fade.active) return null;
+  if (!boarded || fade.active || onZip) return null;
   if (inBoat) return boat.stopped ? '내리기' : null;
+  if (!onBoardTrain && boatHere() && zip.canBoard && nearZipline()) return '짚라인 타기';
   if (!onBoardTrain && boatHere() && boat.canBoard && nearBoat()) return '보트 타기';
   return nearSign()?.label ?? null;
 }
@@ -147,6 +167,18 @@ const actionButton = new ActionButton(() => {
     player.root.position.set(stand.x + boatStation.root.position.x, player.root.position.y, stand.y + boatStation.root.position.z);
     const n = boat.pier.normal;
     facing = Math.atan2(n.x, n.y); // face the bank, ready to walk off
+  } else if (actionLabel() === '짚라인 타기') {
+    // No ladder climbing: a soft fade, and you are seated at the top of the tower.
+    fade.through(() => {
+      zip.board();
+      onZip = true;
+      player.seated = true;
+      facing = zip.facing;
+      player.root.rotation.y = facing;
+      zip.seat(seatPos);
+      player.root.position.set(seatPos.x, seatPos.y - FOOT_HEIGHT, seatPos.z);
+      followCam.snap(player.root.position, facing);
+    });
   } else if (actionLabel() === '보트 타기') {
     boat.board();
     inBoat = true;
@@ -307,7 +339,7 @@ renderer.setAnimationLoop(() => {
 
     // Move relative to where the camera is looking (not while sitting in the boat).
     const { x, y } = input.move;
-    speed = inBoat ? 0 : Math.hypot(x, y);
+    speed = inBoat || onZip ? 0 : Math.hypot(x, y);
     if (speed > 0) {
       moveDir
         .copy(followCam.right(tmpRight).multiplyScalar(x))
@@ -317,7 +349,14 @@ renderer.setAnimationLoop(() => {
     }
 
     const p = player.root.position;
-    if (inBoat) {
+    if (onZip) {
+      // Seated on the zipline: hang from the seat, swinging with it.
+      zip.seat(seatPos);
+      p.set(seatPos.x, seatPos.y - FOOT_HEIGHT, seatPos.z);
+      facing = zip.facing;
+      player.root.rotation.x = zip.tilt;
+      onBoardTrain = false;
+    } else if (inBoat) {
       // Seated in the boat: follow the seat, facing the bow.
       boat.seat(seatPos);
       p.set(seatPos.x, seatPos.y - FOOT_HEIGHT, seatPos.z);
@@ -336,7 +375,7 @@ renderer.setAnimationLoop(() => {
     }
 
     const goal = nearestAngle(player.root.rotation.y, facing);
-    const turnRate = inBoat ? 20 : speed > 0 ? 10 : 3; // in the boat, turn with it
+    const turnRate = inBoat || onZip ? 20 : speed > 0 ? 10 : 3; // riding: turn with the seat
     player.root.rotation.y = THREE.MathUtils.damp(player.root.rotation.y, goal, turnRate, dt);
     followCam.update(dt, player.root.position);
   }
@@ -366,6 +405,7 @@ renderer.setAnimationLoop(() => {
   footprints.update(dt);
   for (const st of stations) st.update?.(dt);
   boat.update(dt);
+  zip.update(dt);
   actionButton.set(actionLabel());
   snowfall.update(dt, camera);
   if (OVERVIEW) {
@@ -389,5 +429,11 @@ if (import.meta.env.DEV && new URLSearchParams(location.search).has('board')) {
 if (import.meta.env.DEV && params.has('boat') && boarded) {
   boat.debugStart(Number(params.get('boat')) || 0);
   inBoat = true;
+  player.seated = true;
+}
+// Dev only: ?zip=<meters> (with ?board&station=1) starts a zipline ride that far down the cable.
+if (import.meta.env.DEV && params.has('zip') && boarded) {
+  zip.debugStart(Number(params.get('zip')) || 0);
+  onZip = true;
   player.seated = true;
 }
