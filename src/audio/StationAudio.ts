@@ -12,6 +12,8 @@ const SPRING_BED = 0.65; // birdsong sits a little lower than the winter wind (a
 const CREEK_VOLUME = 0.7; // right next to the stream
 const CREEK_FLOOR = 0.35; // share still heard from far away
 const CREEK_REACH = 5; // meters; beyond this the creek fades toward the floor
+const ZIP_WIND_VOLUME = 1.0; // at full zipline speed
+const ZIP_WIND_RESPONSE = 4; // how quickly the wind follows the speed (1/s)
 const STEP_VOLUME = 0.48;
 const INDOOR_FACTOR = 0.35; // outside sound level inside the closed car
 const FADE_IN = 4; // seconds, when the sound first starts
@@ -98,6 +100,11 @@ export class StationAudio {
   private creekDistance = Infinity;
   private creekPan = 0;
   private creekSet = { volume: -1, pan: 0 };
+  private zipWind: Howl;
+  private zipWindId = 0;
+  private zipTarget = 0; // 0..1 zipline speed
+  private zipLevel = 0; // smoothed
+  private zipSet = -1;
 
   constructor() {
     const howl = (file: string, sprite?: SpriteMap) => {
@@ -128,6 +135,7 @@ export class StationAudio {
       },
     };
     this.creek = loop('spring/creek.m4a');
+    this.zipWind = loop('spring/zipwind.m4a');
     this.steps = {
       snow: new Steps(howl('winter/steps.m4a', spriteMap(sprites.steps)), spriteMap(sprites.steps), 1),
       wood: new Steps(howl('winter/wood.m4a', spriteMap(sprites.wood)), spriteMap(sprites.wood), 0.7), // wood is sharper
@@ -144,6 +152,7 @@ export class StationAudio {
     this.started = true;
     for (const bed of Object.values(this.beds)) bed.id = bed.ambience.play();
     this.creekId = this.creek.play();
+    this.zipWindId = this.zipWind.play();
   }
 
   /** Inside the closed train car the outside is muffled. */
@@ -163,6 +172,11 @@ export class StationAudio {
   setCreek(distance: number, pan: number): void {
     this.creekDistance = distance;
     this.creekPan = pan;
+  }
+
+  /** Zipline speed, 0 (still or not riding) .. 1 (full speed): wind past the ears follows it. */
+  setZipSpeed(ratio: number): void {
+    this.zipTarget = ratio;
   }
 
   /** One footstep. `speed` is 0..1 from the joystick, so a gentle push sounds softer. */
@@ -202,6 +216,15 @@ export class StationAudio {
     if (Math.abs(this.creekPan - this.creekSet.pan) > 0.02) {
       this.creek.stereo(this.creekPan, this.creekId);
       this.creekSet.pan = this.creekPan;
+    }
+
+    // Wind on the zipline: louder and a little higher the faster you go.
+    this.zipLevel += (this.zipTarget - this.zipLevel) * (1 - Math.exp(-ZIP_WIND_RESPONSE * dt));
+    const zipVolume = ZIP_WIND_VOLUME * this.zipLevel ** 1.3 * this.startLevel;
+    if (Math.abs(zipVolume - this.zipSet) > 0.002) {
+      this.zipWind.volume(zipVolume, this.zipWindId);
+      this.zipWind.rate(0.85 + 0.35 * this.zipLevel, this.zipWindId);
+      this.zipSet = zipVolume;
     }
   }
 

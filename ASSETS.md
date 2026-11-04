@@ -19,6 +19,7 @@
 | 시냇물 소리 (`spring/creek.m4a`) | Creek 06 (loop) | VKProduktion | https://freesound.org/people/VKProduktion/sounds/231536/ |
 | 봄 배경음 새소리 (`spring/ambience.m4a`) | Birds Singing Dawn Chorus | SamsterBirdies | https://freesound.org/people/SamsterBirdies/sounds/578523/ |
 | 봄 가끔 빗방울 (`spring/rain.m4a`) | Soft rain drops | brunoauzet | https://freesound.org/s/664162/ |
+| 짚라인 바람 (`spring/zipwind.m4a`) | Sonido Viento Fondo | josecruz98 | https://freesound.org/people/josecruz98/sounds/393007/ |
 | 풀 밟는 소리 (`spring/grass.m4a`) | Grassy Footstep 1~4 (Footsteps 팩) | OwlStorm | https://freesound.org/people/OwlStorm/packs/9344/ (151230, 151229, 151228, 151235) |
 
 받아 두었지만 지금은 쓰지 않는 음원:

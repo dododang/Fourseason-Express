@@ -10,6 +10,7 @@ public/audio/spring/:
   creek.m4a     seamless loop: the stream, louder the closer you are
   rain.m4a      sprite of four short spells of soft raindrops, played now and then
   grass.m4a     sprite of single footsteps on grass
+  zipwind.m4a   seamless loop: wind past the ears on the zipline (level follows speed at runtime)
 and src/audio/sprites.json with the sprite offsets (ms) for Howler.
 
 Requires ffmpeg (FFMPEG env var, PATH, or the winget install location) and numpy.
@@ -204,6 +205,32 @@ def build_rain() -> dict:
     return offsets
 
 
+def compress(x: np.ndarray, threshold_db: float, ratio: float, window: float = 0.08) -> np.ndarray:
+    """Gentle compressor: turns down the loud gusts so the whole sound can sit higher."""
+    n = int(window * SR)
+    power = np.convolve(np.mean(x ** 2, axis=1), np.ones(n) / n, mode='same')
+    level_db = 10 * np.log10(power + 1e-12)
+    over = np.maximum(0, level_db - threshold_db)
+    gain = 10 ** (-over * (1 - 1 / ratio) / 20)
+    return x * gain[:, None]
+
+
+def soft_limit(x: np.ndarray, ceiling_db: float) -> np.ndarray:
+    """Rounds off brief peaks toward the ceiling instead of turning the whole sound down (fine on noise)."""
+    c = 10 ** (ceiling_db / 20)
+    return c * np.tanh(x / c)
+
+
+def build_zip_wind() -> None:
+    # Even foley wind; a 24 s seamless loop is plenty for a 9 s ride.
+    loop_len, overlap = 24.0, 4.0
+    wind = load('393007__josecruz98__sonido-viento-fondo.wav')
+    wind = compress(seconds(wind, 1, 1 + loop_len + overlap), -38, 3)
+    loop = soft_limit(gain_to(seamless_loop(wind, loop_len, overlap), -17), -4)
+    save(loop, 'spring/zipwind.m4a', '64k')
+    print(f'zip wind: {len(loop) / SR:.1f}s')
+
+
 def remove_click(x: np.ndarray, start: float, end: float) -> np.ndarray:
     """Finds the sharpest jump between start and end (s) and bridges 3 ms around it with a straight line."""
     x = x.copy()
@@ -240,6 +267,7 @@ if __name__ == '__main__':
     build_ambience()
     build_spring_ambience()
     build_creek()
+    build_zip_wind()
     sprites = {
         'gusts': build_gusts(),
         'steps': build_steps(),

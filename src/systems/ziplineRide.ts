@@ -39,6 +39,11 @@ export class ZiplineRide {
     this.place();
   }
 
+  /** Current speed relative to top speed, 0..1 (0 when the rider is not sliding). */
+  get speedRatio(): number {
+    return this.rider ? this.speed / TOP_SPEED : 0;
+  }
+
   get canBoard(): boolean {
     return this.state === 'ready';
   }

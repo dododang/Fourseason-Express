@@ -400,6 +400,7 @@ renderer.setAnimationLoop(() => {
   snowfall.points.visible = !indoors && season.winter > 0.01;
   audio.setSeasonMix({ winter: season.winter, spring: 1 - season.winter });
   updateCreekSound();
+  audio.setZipSpeed(onZip ? zip.speedRatio : 0);
   audio.setIndoor(onBoardTrain && railway.doorOpen < 0.5);
   audio.update(dt);
   footprints.update(dt);
