@@ -106,13 +106,13 @@ CLAUDE.md가 "무엇을, 왜" 만드는지를 정리한 문서라면, 이 문서
   - [x] 2-4. 두 역 노선 (겨울 → 봄 → 겨울), 역 수만큼의 열차가 같은 간격으로 동시에 운행
   - [x] 2-4. 역 사이에서 하늘, 땅, 먼 산, 나무, 눈이 다음 계절로 서서히 바뀐다
   - [ ] 2-5. 구역 지연 로딩: 다음 역에 가까워질 때 불러오고, 떠난 역은 dispose
-  - [ ] 2-6. 봄 소리: 시냇물, 새소리, 풀 밟는 소리 (지금은 눈 소리를 작게 바꿔 임시로 씀)
-    - 구성안: 바탕 = 시냇물 + 새소리 반복 소리, 가끔 = 빗방울 (겨울의 스치는 바람처럼)
-    - 후보 (모두 CC0 확인, 2026-11-03). 사용자가 듣고 고르는 중. ⭐ 표시가 추천
-      - 시냇물: ⭐ https://freesound.org/people/VKProduktion/sounds/231536/ (반복용) / https://freesound.org/people/BurghRecords/sounds/446019/
-      - 새소리: ⭐ https://freesound.org/people/BurghRecords/sounds/456123/ / https://freesound.org/people/SamsterBirdies/sounds/578523/ / https://freesound.org/people/squashy555/sounds/573080/ / https://freesound.org/people/WhisperingEarth/sounds/798842/
-      - 빗방울: ⭐ https://freesound.org/people/INNORECORDS/sounds/457447/ / https://freesound.org/s/664162/ / https://freesound.org/people/ThaisMontanari/sounds/192338/
-      - 풀 발소리: ⭐ OwlStorm Footsteps 팩의 Grassy Footstep 1~4 https://freesound.org/people/OwlStorm/packs/9344/ (2번은 0.2초쯤 딸깍 소리, 다듬기)
+  - [x] 2-6. 봄 소리: 새소리 배경음(72초 반복), 가끔 지나가는 빗방울, 풀 밟는 소리 (`src/audio/StationAudio.ts`)
+  - [x] 2-6. 봄 마을 시냇물과 아치형 나무 다리 (`src/scenes/creek.ts`). 물소리는 시냇물에 가까울수록 커지고, 시냇물이 있는 쪽에서 들린다
+  - [x] 2-7. 오른쪽 아래 상호작용 버튼 (`src/ui/actionButton.ts`). 할 수 있는 일이 있을 때만 나타난다
+  - [x] 2-7. 봄 시냇물 보트 (`src/systems/boatRide.ts`): 선착장에서 "보트 타기", 앉아 있으면 저절로 떠내려가 다리 밑을 지나 나루터에 닿는다. "내리기"로 내리거나, 계속 앉아 있으면 천천히 돌아 선착장으로 돌아온다
+  - [x] 2-7. 역 뒤 길가와 선착장 옆 표지판: 근처에서 "선착장으로 가기" / "역으로 가기"를 누르면 화면이 밝아졌다가 그 자리로 옮겨진다
+  - [ ] 2-8. 짚라인: 나루터 옆 높은 기둥에서 선착장 쪽까지 타고 돌아오기
+  - [x] 2-6. 역 사이에서 겨울 소리와 봄 소리가 하늘색과 같은 비율로 서서히 바뀐다
 - **3단계, 사계절과 활동**: 나머지 역, 계절별 활동, 서버 시간 기준 열차 시간표. 네 역을 같은 간격과 같은 크기로 놓고 열차 4대를 동시에 운행한다.
 - **4단계, 함께 있는 느낌과 공개**: 같은 역 인원 표시부터 시작해서 다른 사람 모습, 인원 제한과 채널 분산, 배포.
 

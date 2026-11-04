@@ -1,11 +1,16 @@
-"""Builds the winter station audio from the original downloads in raw-audio/.
+"""Builds the station audio from the original downloads in raw-audio/.
 
-Outputs (public/audio/winter/):
+Outputs, public/audio/winter/:
   ambience.m4a  seamless loop: two winds + quiet forest air + faint winter forest
   gusts.m4a     sprite of four passing gusts, played now and then at runtime
   steps.m4a     sprite of single footsteps in fresh snow
   wood.m4a      sprite of single footsteps on the wooden platform
-and src/audio/winterSprites.json with the sprite offsets (ms) for Howler.
+public/audio/spring/:
+  ambience.m4a  seamless loop: a dawn bird chorus
+  creek.m4a     seamless loop: the stream, louder the closer you are
+  rain.m4a      sprite of four short spells of soft raindrops, played now and then
+  grass.m4a     sprite of single footsteps on grass
+and src/audio/sprites.json with the sprite offsets (ms) for Howler.
 
 Requires ffmpeg (FFMPEG env var, PATH, or the winget install location) and numpy.
 Run from the project root:  python scripts/build_audio.py
@@ -21,8 +26,8 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
 RAW = ROOT / 'raw-audio'
-OUT = ROOT / 'public' / 'audio' / 'winter'
-SPRITES = ROOT / 'src' / 'audio' / 'winterSprites.json'
+OUT = ROOT / 'public' / 'audio'
+SPRITES = ROOT / 'src' / 'audio' / 'sprites.json'
 SR = 48000
 
 
@@ -51,7 +56,8 @@ def load(name: str, channels: int = 2) -> np.ndarray:
 
 
 def save(x: np.ndarray, name: str, bitrate: str) -> None:
-    OUT.mkdir(parents=True, exist_ok=True)
+    """name is relative to public/audio, e.g. 'winter/steps.m4a'."""
+    (OUT / name).parent.mkdir(parents=True, exist_ok=True)
     channels = x.shape[1]
     subprocess.run(
         [FFMPEG, '-v', 'error', '-y', '-f', 'f32le', '-ar', str(SR), '-ac', str(channels), '-i', '-',
@@ -130,8 +136,8 @@ def build_ambience() -> None:
     n = min(len(wind_plain), len(wind_trees), len(quiet_air), len(forest))
     mix = wind_plain[:n] + wind_trees[:n] + quiet_air[:n] + forest[:n]
     loop = limit_peak(gain_to(seamless_loop(mix, loop_len, overlap), -26), -3)
-    save(loop, 'ambience.m4a', '80k')
-    print(f'ambience: {len(loop) / SR:.1f}s, {rms_db(loop):.1f} dB RMS')
+    save(loop, 'winter/ambience.m4a', '80k')
+    print(f'winter ambience: {len(loop) / SR:.1f}s, {rms_db(loop):.1f} dB RMS')
 
 
 def build_gusts() -> dict:
@@ -139,7 +145,7 @@ def build_gusts() -> dict:
     windows = [(4, 12.5), (17, 25.5), (44, 53), (65.5, 74.5)]  # around the loudest moments
     clips = [limit_peak(gain_to(fade(seconds(src, a, b), 2.5, 3.5), -24), -4) for a, b in windows]
     data, offsets = sprite(clips, 0.5, 'gust')
-    save(data, 'gusts.m4a', '64k')
+    save(data, 'winter/gusts.m4a', '64k')
     print(f'gusts: {len(clips)} clips, {len(data) / SR:.1f}s')
     return offsets
 
@@ -153,7 +159,7 @@ def build_steps() -> dict:
         peak = np.max(np.abs(c))
         clips.append(c * (10 ** (-6 / 20) / peak))  # even out step loudness
     data, offsets = sprite(clips, 0.3, 'step')
-    save(data, 'steps.m4a', '96k')
+    save(data, 'winter/steps.m4a', '96k')
     print(f'steps: {len(clips)} clips, {len(data) / SR:.1f}s')
     return offsets
 
@@ -167,15 +173,81 @@ def build_wood_steps() -> dict:
         peak = np.max(np.abs(c))
         clips.append(c * (10 ** (-6 / 20) / peak))
     data, offsets = sprite(clips, 0.3, 'wood')
-    save(data, 'wood.m4a', '96k')
+    save(data, 'winter/wood.m4a', '96k')
     print(f'wood steps: {len(clips)} clips, {len(data) / SR:.1f}s')
+    return offsets
+
+
+def build_spring_ambience() -> None:
+    # Birds only; the creek is its own loop so it can sound louder near the stream.
+    loop_len, overlap = 72.0, 4.0
+    birds = load('578523__samsterbirdies__birds-singing-dawn-chorus.flac')
+    loop = limit_peak(gain_to(seamless_loop(seconds(birds, 20, 20 + loop_len + overlap), loop_len, overlap), -26), -3)
+    save(loop, 'spring/ambience.m4a', '80k')
+    print(f'spring ambience: {len(loop) / SR:.1f}s, {rms_db(loop):.1f} dB RMS')
+
+
+def build_creek() -> None:
+    # The original is already a seamless 36 s loop; only the level changes.
+    creek = limit_peak(gain_to(load('231536__vkproduktion__creek-06-loop.wav'), -26), -3)
+    save(creek, 'spring/creek.m4a', '80k')
+    print(f'creek: {len(creek) / SR:.1f}s')
+
+
+def build_rain() -> dict:
+    src = load('664162__brunoauzet__soft-rain-drops.wav')
+    windows = [(22, 35), (52, 68), (126, 140), (143, 160)]  # the denser spells of drops
+    clips = [limit_peak(gain_to(fade(seconds(src, a, b), 3, 4), -30), -6) for a, b in windows]
+    data, offsets = sprite(clips, 0.5, 'rain')
+    save(data, 'spring/rain.m4a', '64k')
+    print(f'rain: {len(clips)} clips, {len(data) / SR:.1f}s')
+    return offsets
+
+
+def remove_click(x: np.ndarray, start: float, end: float) -> np.ndarray:
+    """Finds the sharpest jump between start and end (s) and bridges 3 ms around it with a straight line."""
+    x = x.copy()
+    a, b = int(start * SR), int(end * SR)
+    k = a + int(np.argmax(np.abs(np.diff(x[a:b, 0]))))
+    h = int(0.0015 * SR)
+    lo, hi = k - h, k + h
+    x[lo:hi] = np.linspace(x[lo], x[hi], hi - lo, endpoint=False)
+    return x
+
+
+def build_grass_steps() -> dict:
+    files = {  # file: onset of the step (s)
+        '151230__owlstorm__grassy-footstep-1.wav': 0.08,
+        '151229__owlstorm__grassy-footstep-2.wav': 0.04,
+        '151228__owlstorm__grassy-footstep-3.wav': 0.08,
+        '151235__owlstorm__grassy-footstep-4.wav': 0.09,
+    }
+    clips = []
+    for name, t in files.items():
+        src = load(name, channels=1)
+        if 'footstep-2' in name:
+            src = remove_click(src, 0.185, 0.205)  # a small tick inside the step
+        c = fade(seconds(src, t - 0.02, t + 0.34), 0.004, 0.12)
+        peak = np.max(np.abs(c))
+        clips.append(c * (10 ** (-6 / 20) / peak))
+    data, offsets = sprite(clips, 0.3, 'grass')
+    save(data, 'spring/grass.m4a', '96k')
+    print(f'grass steps: {len(clips)} clips, {len(data) / SR:.1f}s')
     return offsets
 
 
 if __name__ == '__main__':
     build_ambience()
-    sprites = {'gusts': build_gusts(), 'steps': build_steps(), 'wood': build_wood_steps()}
+    build_spring_ambience()
+    build_creek()
+    sprites = {
+        'gusts': build_gusts(),
+        'steps': build_steps(),
+        'wood': build_wood_steps(),
+        'rain': build_rain(),
+        'grass': build_grass_steps(),
+    }
     SPRITES.parent.mkdir(parents=True, exist_ok=True)
     SPRITES.write_text(json.dumps(sprites, indent=2) + '\n', encoding='utf-8')
-    for f in sorted(OUT.iterdir()):
-        print(f'{f.name}: {f.stat().st_size / 1024:.0f} KB')
+    for f in sorted(OUT.rglob('*.m4a')):
+        print(f'{f.relative_to(OUT)}: {f.stat().st_size / 1024:.0f} KB')

@@ -1,10 +1,12 @@
 // Entry point: renderer setup and game loop.
 import * as THREE from 'three';
-import { Character } from './character/Character';
+import { Character, FOOT_HEIGHT } from './character/Character';
 import { randomLook } from './character/options';
 import { Entrance } from './ui/entrance';
 import { ZoneBanner } from './ui/zoneBanner';
 import { DoorTimer } from './ui/doorTimer';
+import { ActionButton } from './ui/actionButton';
+import { ScreenFade } from './ui/fade';
 import { setupDebugStats } from './systems/debugStats';
 import { Input } from './controls/input';
 import { ThirdPersonCamera } from './controls/ThirdPersonCamera';
@@ -14,8 +16,9 @@ import type { Track } from './scenes/lowpoly';
 import { Railway, TRAIN_FLOOR } from './systems/railway';
 import { Footprints } from './systems/footprints';
 import { Snowfall } from './systems/snowfall';
-import { WinterAudio } from './audio/WinterAudio';
+import { StationAudio } from './audio/StationAudio';
 import { AdaptiveQuality } from './systems/adaptiveQuality';
+import { BoatRide } from './systems/boatRide';
 
 const container = document.getElementById('app')!;
 
@@ -51,6 +54,15 @@ const snowfall = new Snowfall();
 winter.root.add(footprints.mesh); // prints belong to the station and travel with it
 scene.add(snowfall.points);
 let onBoardTrain = false; // player is inside the car
+
+// Rowboat on the spring stream.
+const boatStation = stations.find((st) => st.creek)!;
+const boat = new BoatRide(boatStation.creek!, track);
+boatStation.root.add(boat.mesh);
+let inBoat = false;
+const BOARD_RANGE = 2.2; // m from the pier's standing spot
+const SIGN_RANGE = 1.6; // m from a signpost
+const fade = new ScreenFade();
 
 // Season notice at the top when arriving somewhere.
 const banner = new ZoneBanner();
@@ -100,7 +112,59 @@ const player = new Character(randomLook());
 player.root.position.copy(SPAWN);
 scene.add(player.root);
 
-const audio = new WinterAudio();
+const audio = new StationAudio();
+
+// The one context button: board or leave the boat.
+const seatPos = new THREE.Vector3();
+function boatHere(): boolean {
+  return railway.view === 'station' && railway.station === boatStation;
+}
+function nearBoat(): boolean {
+  const stand = boat.pier.stand;
+  const x = player.root.position.x - boatStation.root.position.x;
+  const z = player.root.position.z - boatStation.root.position.z;
+  return Math.hypot(x - stand.x, z - stand.y) < BOARD_RANGE;
+}
+/** Signpost the player stands next to, if any. */
+function nearSign() {
+  if (!boatHere() || onBoardTrain) return undefined;
+  const x = player.root.position.x - boatStation.root.position.x;
+  const z = player.root.position.z - boatStation.root.position.z;
+  return boatStation.creek!.signs.find((sign) => Math.hypot(x - sign.pos.x, z - sign.pos.y) < SIGN_RANGE);
+}
+function actionLabel(): string | null {
+  if (!boarded || fade.active) return null;
+  if (inBoat) return boat.stopped ? '내리기' : null;
+  if (!onBoardTrain && boatHere() && boat.canBoard && nearBoat()) return '보트 타기';
+  return nearSign()?.label ?? null;
+}
+const actionButton = new ActionButton(() => {
+  if (inBoat) {
+    if (!boat.stopped) return;
+    const stand = boat.alight();
+    inBoat = false;
+    player.seated = false;
+    player.root.position.set(stand.x + boatStation.root.position.x, player.root.position.y, stand.y + boatStation.root.position.z);
+    const n = boat.pier.normal;
+    facing = Math.atan2(n.x, n.y); // face the bank, ready to walk off
+  } else if (actionLabel() === '보트 타기') {
+    boat.board();
+    inBoat = true;
+    player.seated = true;
+  } else {
+    // Signpost: carried to its partner behind a soft fade.
+    const to = nearSign()?.partner;
+    if (!to) return;
+    fade.through(() => {
+      const root = boatStation.root.position;
+      const p = player.root.position;
+      p.set(to.arrive.x + root.x, boatStation.heightAt(to.arrive.x, to.arrive.y), to.arrive.y + root.z);
+      facing = to.arriveFacing;
+      player.root.rotation.y = facing;
+      followCam.snap(p, facing);
+    });
+  }
+});
 let walkSpeed = 0;
 
 // Each step plays a footstep sound and leaves a print in the snow (not on wood).
@@ -115,6 +179,29 @@ player.onStep = (foot) => {
     footprints.add(footPos.x - winter.root.position.x, footPos.z, player.root.rotation.y);
   }
 };
+
+// The creek sound comes from the nearest stream: its distance, and which side of the view it is on.
+const creekPoint = new THREE.Vector2();
+const camRight = new THREE.Vector3();
+function updateCreekSound(): void {
+  let best = Infinity;
+  let pan = 0;
+  for (const st of stations) {
+    if (!st.creek) continue;
+    const x = player.root.position.x - st.root.position.x; // station-local
+    const z = player.root.position.z - st.root.position.z;
+    const d = st.creek.nearest(x, z, creekPoint);
+    if (d >= best) continue;
+    best = d;
+    const dx = creekPoint.x - x;
+    const dz = creekPoint.y - z;
+    const len = Math.hypot(dx, dz) || 1;
+    camRight.setFromMatrixColumn(camera.matrixWorld, 0);
+    // Centered when standing at the water or on the bridge, more to one side the farther away.
+    pan = ((dx * camRight.x + dz * camRight.z) / len) * 0.6 * THREE.MathUtils.smoothstep(d, 0.3, 4);
+  }
+  audio.setCreek(best, pan);
+}
 
 // Camera framing: close-up while choosing, third-person follow after boarding.
 const ENTRANCE_CAM = {
@@ -218,9 +305,9 @@ renderer.setAnimationLoop(() => {
     followCam.rotate(look.dx, look.dy);
     followCam.zoom(input.consumeZoom());
 
-    // Move relative to where the camera is looking.
+    // Move relative to where the camera is looking (not while sitting in the boat).
     const { x, y } = input.move;
-    speed = Math.hypot(x, y);
+    speed = inBoat ? 0 : Math.hypot(x, y);
     if (speed > 0) {
       moveDir
         .copy(followCam.right(tmpRight).multiplyScalar(x))
@@ -229,19 +316,28 @@ renderer.setAnimationLoop(() => {
       facing = Math.atan2(moveDir.x, moveDir.z);
     }
 
-    // Every frame, not only while moving: closing doors must push a player out of the doorway.
     const p = player.root.position;
-    const car = railway.carAt(p);
-    if (car >= 0) railway.constrainInside(car, p, PLAYER_RADIUS);
-    else railway.station.constrain(p, PLAYER_RADIUS);
-    onBoardTrain = railway.isInside(p);
+    if (inBoat) {
+      // Seated in the boat: follow the seat, facing the bow.
+      boat.seat(seatPos);
+      p.set(seatPos.x, seatPos.y - FOOT_HEIGHT, seatPos.z);
+      facing = boat.yaw;
+      onBoardTrain = false;
+    } else {
+      // Every frame, not only while moving: closing doors must push a player out of the doorway.
+      const car = railway.carAt(p);
+      if (car >= 0) railway.constrainInside(car, p, PLAYER_RADIUS);
+      else railway.station.constrain(p, PLAYER_RADIUS);
+      onBoardTrain = railway.isInside(p);
 
-    // Step up onto / down from the platform and the car floor smoothly.
-    const ground = onBoardTrain ? TRAIN_FLOOR : railway.station.heightAt(p.x, p.z);
-    p.y = THREE.MathUtils.damp(p.y, ground, 14, dt);
+      // Step up onto / down from the platform and the car floor smoothly.
+      const ground = onBoardTrain ? TRAIN_FLOOR : railway.station.heightAt(p.x, p.z);
+      p.y = THREE.MathUtils.damp(p.y, ground, 14, dt);
+    }
 
     const goal = nearestAngle(player.root.rotation.y, facing);
-    player.root.rotation.y = THREE.MathUtils.damp(player.root.rotation.y, goal, speed > 0 ? 10 : 3, dt);
+    const turnRate = inBoat ? 20 : speed > 0 ? 10 : 3; // in the boat, turn with it
+    player.root.rotation.y = THREE.MathUtils.damp(player.root.rotation.y, goal, turnRate, dt);
     followCam.update(dt, player.root.position);
   }
 
@@ -257,15 +353,20 @@ renderer.setAnimationLoop(() => {
   player.update(dt, speed);
   railway.update(dt, player.root.position);
   doorTimer.update(trainNotice());
-  // Sky, ground and snowfall follow the season of wherever the view is on the line.
+  // Sky, ground, snowfall and the ambience follow the season of wherever the view is on the line.
   const season = railway.viewSeason;
   backdrop.setPalette(season.palette);
   const indoors = railway.isInside(camera.position);
   snowfall.setIntensity(season.winter);
   snowfall.points.visible = !indoors && season.winter > 0.01;
+  audio.setSeasonMix({ winter: season.winter, spring: 1 - season.winter });
+  updateCreekSound();
   audio.setIndoor(onBoardTrain && railway.doorOpen < 0.5);
   audio.update(dt);
   footprints.update(dt);
+  for (const st of stations) st.update?.(dt);
+  boat.update(dt);
+  actionButton.set(actionLabel());
   snowfall.update(dt, camera);
   if (OVERVIEW) {
     camera.clearViewOffset();
@@ -283,4 +384,10 @@ renderer.setAnimationLoop(() => {
 // Dev only: ?board skips the entrance (handy for screenshots and quick testing).
 if (import.meta.env.DEV && new URLSearchParams(location.search).has('board')) {
   document.querySelector<HTMLButtonElement>('.button--primary')?.click();
+}
+// Dev only: ?boat=<meters> (with ?board&station=1) starts a boat ride that far below the dock.
+if (import.meta.env.DEV && params.has('boat') && boarded) {
+  boat.debugStart(Number(params.get('boat')) || 0);
+  inBoat = true;
+  player.seated = true;
 }

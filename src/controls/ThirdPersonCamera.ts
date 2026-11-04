@@ -28,6 +28,19 @@ export class ThirdPersonCamera {
     this.followRate = 2.5;
   }
 
+  /** Jump straight behind a new position (after a teleport), facing along `facing`. */
+  snap(targetPos: THREE.Vector3, facing: number): void {
+    this.yaw = facing + Math.PI; // camera on the far side of where the character looks
+    this.lookTarget.set(targetPos.x, targetPos.y + HEIGHT_OFFSET, targetPos.z);
+    const cp = Math.cos(this.pitch);
+    this.camera.position.set(
+      this.lookTarget.x + Math.sin(this.yaw) * cp * this.distance,
+      this.lookTarget.y + Math.sin(this.pitch) * this.distance,
+      this.lookTarget.z + Math.cos(this.yaw) * cp * this.distance,
+    );
+    this.camera.lookAt(this.lookTarget);
+  }
+
   rotate(dxPx: number, dyPx: number): void {
     this.yaw -= dxPx * YAW_SPEED;
     this.pitch = THREE.MathUtils.clamp(this.pitch + dyPx * PITCH_SPEED, PITCH_MIN, PITCH_MAX);

@@ -12,6 +12,7 @@ import {
   createRoundTreeGeometry,
   radialTexture,
 } from './props';
+import { createCreek, type Creek } from './creek';
 import { PALETTES, type SeasonPalette } from './seasons';
 import type { Surface, Zone } from './zone';
 
@@ -41,6 +42,8 @@ interface SeasonDressing {
   mound: { color: string; faceted: boolean };
   edgeColor: string; // strip along the platform's village-side edge
   flowers: number;
+  /** A stream with a footbridge behind the village. */
+  creek: boolean;
 }
 
 const DRESSING: Record<StationSeason, SeasonDressing> = {
@@ -55,6 +58,7 @@ const DRESSING: Record<StationSeason, SeasonDressing> = {
     mound: { color: '#f4f7fb', faceted: false },
     edgeColor: '#f1f4f8',
     flowers: 0,
+    creek: false,
   },
   spring: {
     name: '봄',
@@ -70,6 +74,7 @@ const DRESSING: Record<StationSeason, SeasonDressing> = {
     mound: { color: '#7fa866', faceted: true },
     edgeColor: '#9fc283',
     flowers: 420,
+    creek: true,
   },
 };
 
@@ -82,6 +87,8 @@ export interface StationZone extends Zone {
   root: THREE.Group;
   /** While set and true for x, the rail-side edge of the platform is open (train doors). */
   railGate: ((x: number) => boolean) | null;
+  /** The stream, if this station has one (local coordinates, relative to root). */
+  creek: Creek | null;
 }
 
 interface Collider {
@@ -102,11 +109,20 @@ export function buildStation(scene: THREE.Scene, season: StationSeason): Station
 
   const root = new THREE.Group();
   root.add(createGround(track, dress.palette), createPlatform(track, colliders, dress));
-  root.add(...createNature(track, rand, colliders, dress));
+  // The stream has its own seed so the rest of the layout keeps its own sequence.
+  const creek = dress.creek ? createCreek(track, seededRandom(dress.seed + 1)) : null;
+  if (creek) {
+    root.add(...creek.objects);
+    colliders.push(...creek.colliders);
+  }
+  root.add(...createNature(track, rand, colliders, dress, creek));
   scene.add(root);
 
-  const heightAt = (x: number, z: number): number =>
-    x > PLATFORM.minX && x < PLATFORM.maxX && z > PLATFORM.minZ && z < PLATFORM.maxZ ? PLATFORM.height : 0;
+  const heightAt = (x: number, z: number): number => {
+    if (x > PLATFORM.minX && x < PLATFORM.maxX && z > PLATFORM.minZ && z < PLATFORM.maxZ) return PLATFORM.height;
+    return creek ? creek.deckHeight(x, z) : 0;
+  };
+  const near = new THREE.Vector2();
 
   const constrain = (p: THREE.Vector3, radius: number): void => {
     // Soft circular world boundary.
@@ -129,6 +145,19 @@ export function buildStation(scene: THREE.Scene, season: StationSeason): Station
         p.z = c.z + (dz / d) * min;
       }
     }
+    // Keep out of the water, except on the bridge and piers: step back to the bank.
+    if (creek && !creek.onDeck(p.x, p.z)) {
+      const inside = creek.nearest(p.x, p.z, near) + radius * 0.5;
+      if (inside < 0) {
+        let dx = p.x - near.x;
+        let dz = p.z - near.y;
+        const d = Math.hypot(dx, dz);
+        if (d < 1e-6) [dx, dz] = [0, 1];
+        else [dx, dz] = [dx / d, dz / d];
+        p.x -= dx * inside;
+        p.z -= dz * inside;
+      }
+    }
   };
 
   const zone: StationZone = {
@@ -137,11 +166,13 @@ export function buildStation(scene: THREE.Scene, season: StationSeason): Station
     palette: dress.palette,
     root,
     railGate: null,
+    creek,
     spawn: SPAWN.clone(),
     viewYaw: Math.PI, // camera on the village side, so the player faces the train
     snowfall: dress.snowfall,
     heightAt,
-    surfaceAt: (x, z) => (heightAt(x, z) > 0 ? 'wood' : dress.surface),
+    surfaceAt: (x, z) => (heightAt(x, z) > 0 || creek?.onDeck(x, z) ? 'wood' : dress.surface),
+    update: creek ? (dt) => creek.update(dt) : undefined,
     constrain,
     dispose: () => {
       scene.remove(root);
@@ -266,7 +297,7 @@ function createPlatform(track: Track, colliders: Collider[], dress: SeasonDressi
 }
 
 /** Keep the station, the rails and a path into the village clear of props. */
-function isReserved(x: number, z: number, margin: number): boolean {
+function isStationReserved(x: number, z: number, margin: number): boolean {
   const nearStation = x > PLATFORM.minX - 2 - margin && x < PLATFORM.maxX + 2 + margin && z > -2.5 - margin;
   const railBand = z > PLATFORM.maxZ - margin && z < RAIL_Z + 3.2 + margin;
   const path = Math.abs(x) < 2.2 + margin && z > -14 && z < 0;
@@ -278,7 +309,10 @@ function createNature(
   rand: () => number,
   colliders: Collider[],
   dress: SeasonDressing,
+  creek: Creek | null,
 ): THREE.Object3D[] {
+  const isReserved = (x: number, z: number, margin: number) =>
+    isStationReserved(x, z, margin) || (creek !== null && creek.reserved(x, z, margin));
   const placed: { x: number; z: number; r: number }[] = [];
   const tryPlace = (minR: number, maxR: number, spacing: number, margin: number) => {
     for (let attempt = 0; attempt < 40; attempt++) {
@@ -336,7 +370,7 @@ function createNature(
       const r = radius + (rand() - 0.5) * 0.8;
       const x = Math.cos(a) * r;
       const z = Math.sin(a) * r;
-      if (Math.abs(z - RAIL_Z) < 3.6) continue;
+      if (Math.abs(z - RAIL_Z) < 3.6 || isReserved(x, z, 0)) continue;
       const scale = 1.1 + rand() * 0.6;
       placed.push({ x, z, r: 0.7 * scale });
       treeSpots.push({ x, z, scale });

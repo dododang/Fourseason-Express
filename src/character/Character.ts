@@ -11,7 +11,7 @@ const EYES = '#2f2a2a';
 const CHEEKS = '#f0b3a6';
 
 const HEAD_RADIUS = 0.3;
-const FOOT_HEIGHT = 0.07;
+export const FOOT_HEIGHT = 0.07;
 
 // Shared geometries (unit sizes, scaled per mesh).
 const sphereGeo = bakeShade(new THREE.SphereGeometry(1, 20, 14));
@@ -50,6 +50,8 @@ function createShadow(): THREE.Mesh {
 export class Character {
   readonly root = new THREE.Group();
   onStep: ((foot: 0 | 1) => void) | null = null;
+  /** Sitting (in the boat). Place root at the seat top minus FOOT_HEIGHT; the pose blends in. */
+  seated = false;
 
   private bodyPivot = new THREE.Group();
   private body = new THREE.Mesh(sphereGeo, shadedMaterial(COAT_COLORS[0].color));
@@ -66,6 +68,7 @@ export class Character {
   private footSpacing = 0;
   private walkPhase = 0;
   private walkBlend = 0;
+  private sitBlend = 0;
   private time = Math.random() * 10;
 
   constructor(look: CharacterLook) {
@@ -151,6 +154,8 @@ export class Character {
     this.time += dt;
     const walking = speed > 0.05;
     this.walkBlend = THREE.MathUtils.damp(this.walkBlend, walking ? 1 : 0, 8, dt);
+    this.sitBlend = THREE.MathUtils.damp(this.sitBlend, this.seated ? 1 : 0, 6, dt);
+    const sit = this.sitBlend;
 
     // Walk cycle: one full phase = two steps.
     const prevSin = Math.sin(this.walkPhase);
@@ -168,19 +173,21 @@ export class Character {
       const phase = i === 0 ? s : -s;
       const foot = this.feet[i];
       const up = Math.max(0, Math.cos(this.walkPhase + (i === 0 ? 0 : Math.PI))) * lift;
-      foot.position.set(side * this.footSpacing, FOOT_HEIGHT + up, phase * stride + 0.03);
+      // Seated: feet rest forward, on the boat floor just below the seat.
+      foot.position.set(side * this.footSpacing, FOOT_HEIGHT * (1 - sit) + up, phase * stride + 0.03 + 0.2 * sit);
     }
 
     // Body: bob and sway while walking, slow breathing while standing.
     const breathe = Math.sin(this.time * 1.7) * 0.015 * (1 - w);
     this.bodyPivot.position.y = FOOT_HEIGHT + Math.abs(s) * 0.035 * w;
     this.bodyPivot.rotation.z = s * 0.07 * w;
-    this.bodyPivot.rotation.x = 0.06 * w;
+    this.bodyPivot.rotation.x = 0.06 * w - 0.05 * sit; // leans back a touch when sitting
     this.bodyPivot.scale.set(1 - breathe * 0.5, 1 + breathe, 1 - breathe * 0.5);
     this.headGroup.rotation.z = -s * 0.04 * w;
 
     // Arms swing opposite to the feet.
-    this.arms[0].rotation.x = -s * 0.6 * w;
-    this.arms[1].rotation.x = s * 0.6 * w;
+    // Seated: hands rest forward on the knees.
+    this.arms[0].rotation.x = -s * 0.6 * w - 0.5 * sit;
+    this.arms[1].rotation.x = s * 0.6 * w - 0.5 * sit;
   }
 }
