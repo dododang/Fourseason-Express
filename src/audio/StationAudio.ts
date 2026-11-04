@@ -14,8 +14,12 @@ const CREEK_FLOOR = 0.35; // share still heard from far away
 const CREEK_REACH = 5; // meters; beyond this the creek fades toward the floor
 const ZIP_WIND_VOLUME = 1.0; // at full zipline speed
 const ZIP_WIND_RESPONSE = 4; // how quickly the wind follows the speed (1/s)
+const TRAIN_INTERIOR_VOLUME = 1.0; // riding at cruising speed
+const TRAIN_RUMBLE_VOLUME = 1.0; // a moving train right beside you
+const TRAIN_RUMBLE_REACH = 12; // m; farther away the rumble fades out
 const STEP_VOLUME = 0.48;
-const INDOOR_FACTOR = 0.35; // outside sound level inside the closed car
+const INSIDE_OPEN = 0.6; // outside sound level inside the car with the doors open
+const INSIDE_CLOSED = 0.15; // ... and with the doors shut
 const FADE_IN = 4; // seconds, when the sound first starts
 const INDOOR_FADE = 1.5; // seconds, doors closing or opening
 
@@ -93,8 +97,8 @@ export class StationAudio {
   private mix: SeasonMix = { winter: 1, spring: 0 };
   private started = false;
   private startLevel = 0; // 0..1 fade-in after the first tap
-  private indoor = false;
-  private indoorLevel = 1; // 1 outside, INDOOR_FACTOR inside the closed car
+  private indoorTarget = 1; // 1 outside, lower inside the car
+  private indoorLevel = 1; // eased toward indoorTarget
   private creek: Howl;
   private creekId = 0;
   private creekDistance = Infinity;
@@ -105,6 +109,12 @@ export class StationAudio {
   private zipTarget = 0; // 0..1 zipline speed
   private zipLevel = 0; // smoothed
   private zipSet = -1;
+  private trainInterior: Howl;
+  private trainInteriorId = 0;
+  private trainRumble: Howl;
+  private trainRumbleId = 0;
+  private train = { speed: 0, inside: false, distance: Infinity };
+  private trainSet = { interior: -1, rumble: -1 };
 
   constructor() {
     const howl = (file: string, sprite?: SpriteMap) => {
@@ -136,6 +146,8 @@ export class StationAudio {
     };
     this.creek = loop('spring/creek.m4a');
     this.zipWind = loop('spring/zipwind.m4a');
+    this.trainInterior = loop('train/interior.m4a');
+    this.trainRumble = loop('train/rumble.m4a');
     this.steps = {
       snow: new Steps(howl('winter/steps.m4a', spriteMap(sprites.steps)), spriteMap(sprites.steps), 1),
       wood: new Steps(howl('winter/wood.m4a', spriteMap(sprites.wood)), spriteMap(sprites.wood), 0.7), // wood is sharper
@@ -153,11 +165,13 @@ export class StationAudio {
     for (const bed of Object.values(this.beds)) bed.id = bed.ambience.play();
     this.creekId = this.creek.play();
     this.zipWindId = this.zipWind.play();
+    this.trainInteriorId = this.trainInterior.play();
+    this.trainRumbleId = this.trainRumble.play();
   }
 
-  /** Inside the closed train car the outside is muffled. */
-  setIndoor(indoor: boolean): void {
-    this.indoor = indoor;
+  /** Inside the train car the outside is muffled: a little with the doors open (0..1), a lot once shut. */
+  setIndoor(inside: boolean, doorsOpen: number): void {
+    this.indoorTarget = inside ? INSIDE_CLOSED + (INSIDE_OPEN - INSIDE_CLOSED) * doorsOpen : 1;
   }
 
   /** Which seasons are heard, following where the view is on the line. */
@@ -174,6 +188,16 @@ export class StationAudio {
     this.creekPan = pan;
   }
 
+  /**
+   * The trains: speed 0..1, whether the listener is inside a car, and the distance to the nearest
+   * car when outside. Inside you hear the carriage; outside, a soft rumble while a train moves.
+   */
+  setTrain(speed: number, inside: boolean, distance: number): void {
+    this.train.speed = speed;
+    this.train.inside = inside;
+    this.train.distance = distance;
+  }
+
   /** Zipline speed, 0 (still or not riding) .. 1 (full speed): wind past the ears follows it. */
   setZipSpeed(ratio: number): void {
     this.zipTarget = ratio;
@@ -188,9 +212,8 @@ export class StationAudio {
   update(dt: number): void {
     if (!this.started) return;
     this.startLevel = Math.min(1, this.startLevel + dt / FADE_IN);
-    const target = this.indoor ? INDOOR_FACTOR : 1;
-    const step = ((1 - INDOOR_FACTOR) * dt) / INDOOR_FADE;
-    this.indoorLevel += clamp(target - this.indoorLevel, -step, step);
+    const step = ((1 - INSIDE_CLOSED) * dt) / INDOOR_FADE;
+    this.indoorLevel += clamp(this.indoorTarget - this.indoorLevel, -step, step);
 
     for (const season of Object.keys(this.beds) as BedSeason[]) {
       const bed = this.beds[season];
@@ -216,6 +239,22 @@ export class StationAudio {
     if (Math.abs(this.creekPan - this.creekSet.pan) > 0.02) {
       this.creek.stereo(this.creekPan, this.creekId);
       this.creekSet.pan = this.creekPan;
+    }
+
+    // Trains: the carriage sound grows with speed; outside, a moving train rumbles softly nearby.
+    const { speed, inside, distance } = this.train;
+    const interior = inside ? TRAIN_INTERIOR_VOLUME * speed ** 0.8 * this.startLevel : 0;
+    const trainNear = 1 / (1 + (distance / TRAIN_RUMBLE_REACH) ** 2);
+    const rumble = inside ? 0 : TRAIN_RUMBLE_VOLUME * speed * trainNear * this.startLevel;
+    if (Math.abs(interior - this.trainSet.interior) > 0.002) {
+      this.trainInterior.volume(interior, this.trainInteriorId);
+      this.trainInterior.rate(0.8 + 0.2 * speed, this.trainInteriorId);
+      this.trainSet.interior = interior;
+    }
+    if (Math.abs(rumble - this.trainSet.rumble) > 0.002) {
+      this.trainRumble.volume(rumble, this.trainRumbleId);
+      this.trainRumble.rate(0.75 + 0.25 * speed, this.trainRumbleId);
+      this.trainSet.rumble = rumble;
     }
 
     // Wind on the zipline: louder and a little higher the faster you go.

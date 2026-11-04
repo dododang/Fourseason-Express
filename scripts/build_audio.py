@@ -11,6 +11,9 @@ public/audio/spring/:
   rain.m4a      sprite of four short spells of soft raindrops, played now and then
   grass.m4a     sprite of single footsteps on grass
   zipwind.m4a   seamless loop: wind past the ears on the zipline (level follows speed at runtime)
+public/audio/train/:
+  interior.m4a  seamless loop: inside a wooden carriage on the move (voice-free part only)
+  rumble.m4a    seamless loop: a passing train, low-passed and evened out to a soft distant rumble
 and src/audio/sprites.json with the sprite offsets (ms) for Howler.
 
 Requires ffmpeg (FFMPEG env var, PATH, or the winget install location) and numpy.
@@ -221,6 +224,35 @@ def soft_limit(x: np.ndarray, ceiling_db: float) -> np.ndarray:
     return c * np.tanh(x / c)
 
 
+def lowpass(x: np.ndarray, cutoff: float, order: int = 4) -> np.ndarray:
+    """Gentle low-pass in the frequency domain (Butterworth-like slope)."""
+    spectrum = np.fft.rfft(x, axis=0)
+    f = np.fft.rfftfreq(len(x), 1 / SR)
+    spectrum *= (1 / np.sqrt(1 + (f / cutoff) ** (2 * order)))[:, None]
+    return np.fft.irfft(spectrum, n=len(x), axis=0).astype(np.float32)
+
+
+def build_train_interior() -> None:
+    # Only 0-55 s: after that the speech band rises (voices), so it is left out entirely.
+    loop_len, overlap = 48.0, 4.0
+    src = load('133099__allh__steam-train-interior.mp3')
+    src = compress(seconds(src, 0.5, 0.5 + loop_len + overlap), -30, 2.5, window=0.1)
+    loop = soft_limit(gain_to(seamless_loop(src, loop_len, overlap), -15.9), -4)
+    save(loop, 'train/interior.m4a', '80k')
+    print(f'train interior: {len(loop) / SR:.1f}s')
+
+
+def build_train_rumble() -> None:
+    # The passing moment (33-42 s), with the wheel screech filtered off and the loud swells evened
+    # out, so a train leaving or arriving is a low, unobtrusive rumble rather than a roar.
+    loop_len, overlap = 7.0, 2.0
+    src = seconds(load('237327__soundkrampf__train-passing-by.wav'), 33.5, 33.5 + loop_len + overlap)
+    soft = compress(lowpass(src, 1200), -30, 4, window=0.15)
+    loop = soft_limit(gain_to(seamless_loop(soft, loop_len, overlap), -17.7), -4)
+    save(loop, 'train/rumble.m4a', '64k')
+    print(f'train rumble: {len(loop) / SR:.1f}s')
+
+
 def build_zip_wind() -> None:
     # Even foley wind; a 24 s seamless loop is plenty for a 9 s ride.
     loop_len, overlap = 24.0, 4.0
@@ -268,6 +300,8 @@ if __name__ == '__main__':
     build_spring_ambience()
     build_creek()
     build_zip_wind()
+    build_train_interior()
+    build_train_rumble()
     sprites = {
         'gusts': build_gusts(),
         'steps': build_steps(),

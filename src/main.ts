@@ -401,7 +401,8 @@ renderer.setAnimationLoop(() => {
   audio.setSeasonMix({ winter: season.winter, spring: 1 - season.winter });
   updateCreekSound();
   audio.setZipSpeed(onZip ? zip.speedRatio : 0);
-  audio.setIndoor(onBoardTrain && railway.doorOpen < 0.5);
+  audio.setIndoor(onBoardTrain, railway.doorOpen);
+  audio.setTrain(railway.speedRatio, onBoardTrain, railway.nearestCarDistance(player.root.position));
   audio.update(dt);
   footprints.update(dt);
   for (const st of stations) st.update?.(dt);

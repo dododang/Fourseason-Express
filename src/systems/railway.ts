@@ -40,6 +40,8 @@ export const TRAIN_FLOOR = PLATFORM.height; // level boarding from the platform
 export class Railway {
   /** 0 = closed, 1 = open (all trains move together). */
   doorOpen = 0;
+  /** Train speed relative to cruising speed, 0..1 (all trains move together). */
+  speedRatio = 0;
   phase: Phase = 'stopped';
   view: 'station' | 'train' = 'station';
   /** Called when the trains pull in and their doors start to open. */
@@ -152,6 +154,10 @@ export class Railway {
     const t = Math.min(this.phaseTime / T, 1);
     const ease = t * t * (3 - 2 * t);
 
+    // Speed along the timetable: smoothstep ramps while departing and arriving.
+    this.speedRatio =
+      phase === 'departing' ? 3 * t * t - 2 * t ** 3 : phase === 'running' ? 1 : phase === 'arriving' ? 1 - 3 * t * t + 2 * t ** 3 : 0;
+
     switch (phase) {
       case 'stopped':
         this.d = 0;
@@ -217,6 +223,17 @@ export class Railway {
 
   private insideCar(k: number, p: THREE.Vector3): boolean {
     return Math.abs(p.x - this.carX[k]) < CAR_HALF_LENGTH && Math.abs(p.z - RAIL_Z) < CAR_HALF_WIDTH;
+  }
+
+  /** Distance from p to the nearest car in view (m), measured to the car's body. */
+  nearestCarDistance(p: THREE.Vector3): number {
+    let best = Infinity;
+    for (const x of this.carX) {
+      const dx = Math.max(0, Math.abs(p.x - x) - CAR_HALF_LENGTH);
+      const dz = Math.max(0, Math.abs(p.z - RAIL_Z) - CAR_HALF_WIDTH);
+      best = Math.min(best, Math.hypot(dx, dz));
+    }
+    return best;
   }
 
   /** Index of the car containing this point, or -1. */

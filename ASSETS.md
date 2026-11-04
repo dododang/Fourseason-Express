@@ -20,6 +20,8 @@
 | 봄 배경음 새소리 (`spring/ambience.m4a`) | Birds Singing Dawn Chorus | SamsterBirdies | https://freesound.org/people/SamsterBirdies/sounds/578523/ |
 | 봄 가끔 빗방울 (`spring/rain.m4a`) | Soft rain drops | brunoauzet | https://freesound.org/s/664162/ |
 | 짚라인 바람 (`spring/zipwind.m4a`) | Sonido Viento Fondo | josecruz98 | https://freesound.org/people/josecruz98/sounds/393007/ |
+| 열차 실내 (`train/interior.m4a`, 말소리 없는 앞 55초만) | Steam Train Interior | allh | https://freesound.org/people/allh/sounds/133099/ |
+| 바깥 열차 소리 (`train/rumble.m4a`, 낮은 소리만 남김) | Train passing by | Soundkrampf | https://freesound.org/people/Soundkrampf/sounds/237327/ |
 | 풀 밟는 소리 (`spring/grass.m4a`) | Grassy Footstep 1~4 (Footsteps 팩) | OwlStorm | https://freesound.org/people/OwlStorm/packs/9344/ (151230, 151229, 151228, 151235) |
 
 받아 두었지만 지금은 쓰지 않는 음원:
