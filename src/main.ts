@@ -10,7 +10,7 @@ import { ScreenFade } from './ui/fade';
 import { setupDebugStats } from './systems/debugStats';
 import { Input } from './controls/input';
 import { ThirdPersonCamera } from './controls/ThirdPersonCamera';
-import { buildStation } from './scenes/station';
+import { buildStation, RAIL_Z, stationInfo, type StationZone } from './scenes/station';
 import { Backdrop } from './scenes/backdrop';
 import type { Track } from './scenes/lowpoly';
 import { Railway, TRAIN_FLOOR } from './systems/railway';
@@ -43,35 +43,45 @@ const track: Track = (d) => {
 };
 // Stations in line order. The loop runs winter -> spring -> back to winter for now;
 // the full line will be spring -> summer -> autumn -> winter -> spring (CLAUDE.md).
-const stations = [buildStation(scene, 'winter'), buildStation(scene, 'spring')];
-const winter = stations[0];
-const backdrop = new Backdrop(scene, track, winter.palette);
-const railway = new Railway(scene, track, stations);
-// Dev only: ?station=1 starts at the second station (spring) for quick checks.
-if (import.meta.env.DEV && params.has('station')) railway.startAt(Number(params.get('station')));
-const SPAWN = winter.spawn;
+// The railway builds each station's scenery only when it is near (lazy loading).
+const backdrop = new Backdrop(scene, track, stationInfo('winter').palette);
+const railway = new Railway(scene, track, ['winter', 'spring'], buildStation);
 const footprints = new Footprints();
 const snowfall = new Snowfall();
-winter.root.add(footprints.mesh); // prints belong to the station and travel with it
+// Prints belong to the winter station's place on the line, so they outlast a reload of its scenery.
+railway.rootOf('winter').add(footprints.mesh);
 scene.add(snowfall.points);
 let onBoardTrain = false; // player is inside the car
 
-// Rowboat on the spring stream.
-const boatStation = stations.find((st) => st.creek)!;
-const boat = new BoatRide(boatStation.creek!, track);
-boatStation.root.add(boat.mesh);
+// The spring station's rowboat and zipline exist only while that station is loaded.
+interface StreamRides {
+  zone: StationZone;
+  boat: BoatRide;
+  zip: ZiplineRide;
+}
+let rides: StreamRides | null = null;
 let inBoat = false;
-
-// Zipline from the boat landing back toward the dock.
-const zip = new ZiplineRide(boatStation.zipline!, track);
-boatStation.root.add(zip.mesh);
 let onZip = false;
-zip.onArrive = () => {
-  // Step down from the seat: keep the spot, the ground follow below drops the feet down gently.
-  onZip = false;
-  player.seated = false;
-  player.root.rotation.x = 0;
+railway.onLoad = (zone) => {
+  if (!zone.creek || !zone.zipline) return;
+  const boat = new BoatRide(zone.creek, zone.track);
+  const zip = new ZiplineRide(zone.zipline, zone.track);
+  zone.content.add(boat.mesh, zip.mesh);
+  zip.onArrive = () => {
+    // Step down from the seat: keep the spot, the ground follow below drops the feet down gently.
+    onZip = false;
+    player.seated = false;
+    player.root.rotation.x = 0;
+  };
+  rides = { zone, boat, zip };
 };
+railway.onUnload = (zone) => {
+  if (rides?.zone === zone) rides = null; // never while riding: the player's own station stays loaded
+};
+// Dev only: ?station=1 starts at the second station (spring) for quick checks.
+if (import.meta.env.DEV && params.has('station')) railway.startAt(Number(params.get('station')));
+const start = railway.station;
+const SPAWN = start.spawn;
 const BOARD_RANGE = 2.2; // m from the pier's standing spot
 const SIGN_RANGE = 1.6; // m from a signpost
 const fade = new ScreenFade();
@@ -127,44 +137,46 @@ scene.add(player.root);
 
 const audio = new StationAudio();
 
-// The one context button: board or leave the boat.
+// The one context button: board or leave the boat, ride the zipline, follow a signpost.
 const seatPos = new THREE.Vector3();
-function boatHere(): boolean {
-  return railway.view === 'station' && railway.station === boatStation;
+/** The stream rides, when the player is standing at their station (not riding a train). */
+function ridesHere(): StreamRides | null {
+  return rides && railway.view === 'station' && railway.station === rides.zone ? rides : null;
 }
-function nearBoat(): boolean {
-  const stand = boat.pier.stand;
-  const x = player.root.position.x - boatStation.root.position.x;
-  const z = player.root.position.z - boatStation.root.position.z;
-  return Math.hypot(x - stand.x, z - stand.y) < BOARD_RANGE;
+/** Player position in a station's own coordinates. */
+function localPos(zone: StationZone): THREE.Vector2 {
+  const p = player.root.position;
+  return new THREE.Vector2(p.x - zone.root.position.x, p.z - zone.root.position.z);
+}
+function near(zone: StationZone, spot: THREE.Vector2, range: number): boolean {
+  return localPos(zone).distanceTo(spot) < range;
 }
 /** Signpost the player stands next to, if any. */
 function nearSign() {
-  if (!boatHere() || onBoardTrain) return undefined;
-  const x = player.root.position.x - boatStation.root.position.x;
-  const z = player.root.position.z - boatStation.root.position.z;
-  return boatStation.signs.find((sign) => Math.hypot(x - sign.pos.x, z - sign.pos.y) < SIGN_RANGE);
-}
-function nearZipline(): boolean {
-  const spot = boatStation.zipline!.boardSpot;
-  const x = player.root.position.x - boatStation.root.position.x;
-  const z = player.root.position.z - boatStation.root.position.z;
-  return Math.hypot(x - spot.x, z - spot.y) < BOARD_RANGE;
+  const here = ridesHere();
+  if (!here || onBoardTrain) return undefined;
+  return here.zone.signs.find((sign) => near(here.zone, sign.pos, SIGN_RANGE));
 }
 function actionLabel(): string | null {
   if (!boarded || fade.active || onZip) return null;
-  if (inBoat) return boat.stopped ? '내리기' : null;
-  if (!onBoardTrain && boatHere() && zip.canBoard && nearZipline()) return '짚라인 타기';
-  if (!onBoardTrain && boatHere() && boat.canBoard && nearBoat()) return '보트 타기';
+  if (inBoat) return rides?.boat.stopped ? '내리기' : null;
+  const here = ridesHere();
+  if (here && !onBoardTrain) {
+    if (here.zip.canBoard && near(here.zone, here.zone.zipline!.boardSpot, BOARD_RANGE)) return '짚라인 타기';
+    if (here.boat.canBoard && near(here.zone, here.boat.pier.stand, BOARD_RANGE)) return '보트 타기';
+  }
   return nearSign()?.label ?? null;
 }
 const actionButton = new ActionButton(() => {
+  const here = ridesHere();
+  if (!here) return;
+  const { zone, boat, zip } = here;
   if (inBoat) {
     if (!boat.stopped) return;
     const stand = boat.alight();
     inBoat = false;
     player.seated = false;
-    player.root.position.set(stand.x + boatStation.root.position.x, player.root.position.y, stand.y + boatStation.root.position.z);
+    player.root.position.set(stand.x + zone.root.position.x, player.root.position.y, stand.y + zone.root.position.z);
     const n = boat.pier.normal;
     facing = Math.atan2(n.x, n.y); // face the bank, ready to walk off
   } else if (actionLabel() === '짚라인 타기') {
@@ -188,9 +200,9 @@ const actionButton = new ActionButton(() => {
     const to = nearSign()?.partner;
     if (!to) return;
     fade.through(() => {
-      const root = boatStation.root.position;
+      const root = zone.root.position;
       const p = player.root.position;
-      p.set(to.arrive.x + root.x, boatStation.heightAt(to.arrive.x, to.arrive.y), to.arrive.y + root.z);
+      p.set(to.arrive.x + root.x, zone.heightAt(to.arrive.x, to.arrive.y), to.arrive.y + root.z);
       facing = to.arriveFacing;
       player.root.rotation.y = facing;
       followCam.snap(p, facing);
@@ -207,8 +219,8 @@ player.onStep = (foot) => {
   const here = railway.station;
   const surface = onBoardTrain ? 'wood' : here.surfaceAt(footPos.x, footPos.z);
   audio.step(walkSpeed, surface);
-  if (surface === 'snow' && here === winter) {
-    footprints.add(footPos.x - winter.root.position.x, footPos.z, player.root.rotation.y);
+  if (surface === 'snow' && here.season === 'winter') {
+    footprints.add(footPos.x - here.root.position.x, footPos.z, player.root.rotation.y);
   }
 };
 
@@ -218,7 +230,7 @@ const camRight = new THREE.Vector3();
 function updateCreekSound(): void {
   let best = Infinity;
   let pan = 0;
-  for (const st of stations) {
+  for (const st of railway.loaded) {
     if (!st.creek) continue;
     const x = player.root.position.x - st.root.position.x; // station-local
     const z = player.root.position.z - st.root.position.z;
@@ -237,7 +249,7 @@ function updateCreekSound(): void {
 
 // Camera framing: close-up while choosing, third-person follow after boarding.
 const ENTRANCE_CAM = {
-  pos: SPAWN.clone().add(new THREE.Vector3(Math.sin(winter.viewYaw) * 3, 0.85, Math.cos(winter.viewYaw) * 3)),
+  pos: SPAWN.clone().add(new THREE.Vector3(Math.sin(start.viewYaw) * 3, 0.85, Math.cos(start.viewYaw) * 3)),
   target: SPAWN.clone().add(new THREE.Vector3(0, 0.52, 0)),
 };
 let boarded = false;
@@ -249,7 +261,7 @@ camera.lookAt(camTarget);
 
 const input = new Input(container);
 const followCam = new ThirdPersonCamera(camera);
-followCam.yaw = winter.viewYaw;
+followCam.yaw = start.viewYaw;
 followCam.collide = (target, desired) => railway.collideCamera(target, desired);
 
 const entrance = new Entrance({
@@ -309,7 +321,7 @@ const PLAYER_RADIUS = 0.3;
 const tmpForward = new THREE.Vector3();
 const tmpRight = new THREE.Vector3();
 const moveDir = new THREE.Vector3();
-let facing = winter.viewYaw + Math.PI; // after boarding the character turns its back to the camera
+let facing = start.viewYaw + Math.PI; // after boarding the character turns its back to the camera
 
 // Dev only: ?overview shows the whole layout from above.
 const OVERVIEW = import.meta.env.DEV && params.has('overview');
@@ -349,18 +361,18 @@ renderer.setAnimationLoop(() => {
     }
 
     const p = player.root.position;
-    if (onZip) {
+    if (onZip && rides) {
       // Seated on the zipline: hang from the seat, swinging with it.
-      zip.seat(seatPos);
+      rides.zip.seat(seatPos);
       p.set(seatPos.x, seatPos.y - FOOT_HEIGHT, seatPos.z);
-      facing = zip.facing;
-      player.root.rotation.x = zip.tilt;
+      facing = rides.zip.facing;
+      player.root.rotation.x = rides.zip.tilt;
       onBoardTrain = false;
-    } else if (inBoat) {
+    } else if (inBoat && rides) {
       // Seated in the boat: follow the seat, facing the bow.
-      boat.seat(seatPos);
+      rides.boat.seat(seatPos);
       p.set(seatPos.x, seatPos.y - FOOT_HEIGHT, seatPos.z);
-      facing = boat.yaw;
+      facing = rides.boat.yaw;
       onBoardTrain = false;
     } else {
       // Every frame, not only while moving: closing doors must push a player out of the doorway.
@@ -400,14 +412,14 @@ renderer.setAnimationLoop(() => {
   snowfall.points.visible = !indoors && season.winter > 0.01;
   audio.setSeasonMix({ winter: season.winter, spring: 1 - season.winter });
   updateCreekSound();
-  audio.setZipSpeed(onZip ? zip.speedRatio : 0);
+  audio.setZipSpeed(onZip && rides ? rides.zip.speedRatio : 0);
   audio.setIndoor(onBoardTrain, railway.doorOpen);
   audio.setTrain(railway.speedRatio, onBoardTrain, railway.nearestCarDistance(player.root.position));
   audio.update(dt);
   footprints.update(dt);
-  for (const st of stations) st.update?.(dt);
-  boat.update(dt);
-  zip.update(dt);
+  for (const st of railway.loaded) st.update?.(dt);
+  rides?.boat.update(dt);
+  rides?.zip.update(dt);
   actionButton.set(actionLabel());
   snowfall.update(dt, camera);
   if (OVERVIEW) {
@@ -427,15 +439,21 @@ renderer.setAnimationLoop(() => {
 if (import.meta.env.DEV && new URLSearchParams(location.search).has('board')) {
   document.querySelector<HTMLButtonElement>('.button--primary')?.click();
 }
+// Dev only: ?ride (with ?board) starts inside the train car, to watch stations load along the way.
+if (import.meta.env.DEV && params.has('ride') && boarded) {
+  player.root.position.set(0, TRAIN_FLOOR, RAIL_Z);
+}
 // Dev only: ?boat=<meters> (with ?board&station=1) starts a boat ride that far below the dock.
-if (import.meta.env.DEV && params.has('boat') && boarded) {
-  boat.debugStart(Number(params.get('boat')) || 0);
+const devRidesBoat = rides as StreamRides | null; // set by railway.onLoad
+if (import.meta.env.DEV && params.has('boat') && boarded && devRidesBoat) {
+  devRidesBoat.boat.debugStart(Number(params.get('boat')) || 0);
   inBoat = true;
   player.seated = true;
 }
 // Dev only: ?zip=<meters> (with ?board&station=1) starts a zipline ride that far down the cable.
-if (import.meta.env.DEV && params.has('zip') && boarded) {
-  zip.debugStart(Number(params.get('zip')) || 0);
+const devRidesZip = rides as StreamRides | null; // set by railway.onLoad
+if (import.meta.env.DEV && params.has('zip') && boarded && devRidesZip) {
+  devRidesZip.zip.debugStart(Number(params.get('zip')) || 0);
   onZip = true;
   player.seated = true;
 }

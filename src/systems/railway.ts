@@ -5,6 +5,10 @@
 //  - 'station' view: the station the player is at stays put and the trains really move.
 //  - 'train' view:   the car the player rides stays put and stations + scenery slide past.
 // The view only changes while the trains are stopped, so nothing jumps.
+//
+// Stations load lazily (CLAUDE.md): the railway always knows every station's season, name and
+// colors, but builds a station's scenery only when the view comes within LOAD_DISTANCE of it,
+// and disposes it again beyond UNLOAD_DISTANCE. The station the player is at is always loaded.
 import * as THREE from 'three';
 import {
   CAR_HALF_LENGTH,
@@ -22,7 +26,7 @@ import {
   type TrainCar,
 } from '../scenes/trainCar';
 import { TrackScenery, CHUNK, type SeasonSample } from '../scenes/trackScenery';
-import { PLATFORM, RAIL_Z, type StationZone } from '../scenes/station';
+import { PLATFORM, RAIL_Z, stationInfo, type StationInfo, type StationSeason, type StationZone } from '../scenes/station';
 import { clonePalette, lerpPalette } from '../scenes/seasons';
 import type { Track } from '../scenes/lowpoly';
 
@@ -34,6 +38,16 @@ const ORDER: Phase[] = ['stopped', 'closing', 'departing', 'running', 'arriving'
 const SEGMENT = 720;
 /** Cruising speed that covers one segment in the timetable (accel/decel each cover SPEED * T / 2). */
 const SPEED = SEGMENT / (CYCLE.departing / 2 + CYCLE.running + CYCLE.arriving / 2);
+/** Build a station when the view is this close (stations show from 220 m), drop it beyond UNLOAD. */
+const LOAD_DISTANCE = 380;
+const UNLOAD_DISTANCE = 450;
+
+/** A station's place on the line: always present, with its scenery loaded only when near. */
+interface StationSlot {
+  info: StationInfo;
+  root: THREE.Group;
+  zone: StationZone | null;
+}
 
 export const TRAIN_FLOOR = PLATFORM.height; // level boarding from the platform
 
@@ -46,6 +60,11 @@ export class Railway {
   view: 'station' | 'train' = 'station';
   /** Called when the trains pull in and their doors start to open. */
   onArrive: ((station: StationZone) => void) | null = null;
+  /** Called right after a station is built, and right before one is disposed. */
+  onLoad: ((station: StationZone) => void) | null = null;
+  onUnload: ((station: StationZone) => void) | null = null;
+
+  private slots: StationSlot[];
 
   private readonly loop: number;
   private cars: TrainCar[] = [];
@@ -62,8 +81,15 @@ export class Railway {
   constructor(
     scene: THREE.Scene,
     track: Track,
-    private stations: StationZone[],
+    seasons: StationSeason[],
+    private build: (root: THREE.Group, season: StationSeason) => StationZone,
   ) {
+    this.slots = seasons.map((season) => {
+      const root = new THREE.Group();
+      scene.add(root);
+      return { info: stationInfo(season), root, zone: null };
+    });
+    const stations = this.slots.map((slot) => slot.info);
     this.loop = SEGMENT * stations.length;
     if (this.loop % (CHUNK * 3) !== 0) console.warn(`Railway loop ${this.loop} m is not a multiple of ${CHUNK * 3} m`);
 
@@ -84,27 +110,72 @@ export class Railway {
     this.scenery.root.position.z = RAIL_Z;
     scene.add(this.scenery.root);
 
+  }
+
+  private load(i: number): StationZone {
+    const slot = this.slots[i];
+    if (slot.zone) return slot.zone;
+    const t0 = performance.now();
+    const zone = this.build(slot.root, slot.info.season);
     // A platform edge opens only at an open door of the car standing there.
-    for (const st of stations) {
-      st.railGate = (x) =>
-        this.doorsPassable() && this.cars.some((_, k) => Math.abs(this.carX[k]) < 1 && this.inDoorway(x - this.carX[k], 0.3));
+    zone.railGate = (x) =>
+      this.doorsPassable() && this.cars.some((_, k) => Math.abs(this.carX[k]) < 1 && this.inDoorway(x - this.carX[k], 0.3));
+    slot.zone = zone;
+    this.onLoad?.(zone);
+    if (import.meta.env.DEV) {
+      console.info(`[stations] built ${slot.info.season} in ${(performance.now() - t0).toFixed(1)} ms, loaded: ${this.loaded.map((z) => z.season)}`);
     }
+    return zone;
+  }
+
+  private unload(i: number): void {
+    const slot = this.slots[i];
+    if (!slot.zone) return;
+    this.onUnload?.(slot.zone);
+    slot.zone.dispose();
+    slot.zone = null;
+    if (import.meta.env.DEV) console.info(`[stations] disposed ${slot.info.season}, loaded: ${this.loaded.map((z) => z.season)}`);
+  }
+
+  /** Stations that are built right now. */
+  get loaded(): StationZone[] {
+    return this.slots.flatMap((slot) => (slot.zone ? [slot.zone] : []));
+  }
+
+  /** The always-present group a station is placed under (for things that outlast its scenery). */
+  rootOf(season: StationSeason): THREE.Group {
+    return this.slots.find((slot) => slot.info.season === season)!.root;
+  }
+
+  /** Builds and drops stations by distance from the view. At most one build per frame. */
+  private stream(anchor: number): void {
+    let built = false;
+    this.slots.forEach((slot, i) => {
+      const dist = Math.abs(this.rel(anchor, i * SEGMENT));
+      const keep = this.view === 'station' && i === this.frame;
+      if (!slot.zone && (keep || (!built && dist < LOAD_DISTANCE))) {
+        this.load(i);
+        built = true;
+      } else if (slot.zone && !keep && dist > UNLOAD_DISTANCE) {
+        this.unload(i);
+      }
+    });
   }
 
   /** Dev only: start the player's frame at another station. */
   startAt(index: number): void {
-    this.frame = ((index % this.stations.length) + this.stations.length) % this.stations.length;
+    this.frame = ((index % this.slots.length) + this.slots.length) % this.slots.length;
   }
 
   /** The station the player is at (or was last at while riding). */
   get station(): StationZone {
-    return this.stations[this.frame];
+    return this.load(this.frame);
   }
 
   /** Where the trains are heading on this leg, as seen by the player's car or station. */
-  get nextStation(): StationZone {
+  get nextStation(): StationInfo {
     const from = this.riding >= 0 ? this.stationOfCar(this.riding) : this.frame;
-    return this.stations[(from + 1) % this.stations.length];
+    return this.slots[(from + 1) % this.slots.length].info;
   }
 
   /** Season at the current view position (for sky, ground, snowfall). */
@@ -114,7 +185,7 @@ export class Railway {
 
   /** Station index a car departed from on the current leg (or stands at while stopped). */
   private stationOfCar(k: number): number {
-    return (k + this.legs) % this.stations.length;
+    return (k + this.legs) % this.slots.length;
   }
 
   /** Track position of a car. */
@@ -134,12 +205,12 @@ export class Railway {
 
   /** Palette and tree mix at a track position: pure at stations, blended mid-leg. */
   private seasonAt(u: number): SeasonSample {
-    const n = this.stations.length;
+    const n = this.slots.length;
     const wrapped = ((u % this.loop) + this.loop) % this.loop;
     const i = Math.floor(wrapped / SEGMENT) % n;
     const t = THREE.MathUtils.smoothstep((wrapped - i * SEGMENT) / SEGMENT, 0.3, 0.7);
-    const a = this.stations[i];
-    const b = this.stations[(i + 1) % n];
+    const a = this.slots[i].info;
+    const b = this.slots[(i + 1) % n].info;
     lerpPalette(a.palette, b.palette, t, this.sample.palette);
     const wa = a.season === 'winter' ? 1 : 0;
     const wb = b.season === 'winter' ? 1 : 0;
@@ -213,7 +284,8 @@ export class Railway {
       car.group.visible = Math.abs(this.carX[k]) < 200;
       car.setDoorOpen(this.doorOpen);
     });
-    this.stations.forEach((st, i) => {
+    this.stream(anchor);
+    this.slots.forEach((st, i) => {
       const x = this.rel(anchor, i * SEGMENT);
       st.root.position.x = x;
       st.root.visible = Math.abs(x) < 220;

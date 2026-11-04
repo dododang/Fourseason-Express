@@ -5,3 +5,6 @@ dist
 
 # Original downloaded audio (large); processed files go to public/audio
 raw-audio/
+
+# Output of scripts/check-lazy-load.ts
+.lazy-check.mjs

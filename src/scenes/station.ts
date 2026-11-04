@@ -25,6 +25,9 @@ export const WORLD_RADIUS = 60;
 export const PLATFORM = { minX: -13, maxX: 13, minZ: 0.2, maxZ: 2.8, height: 0.12 };
 export const RAIL_Z = 4.95; // track center line; the car (4.2 m wide) starts at the platform edge
 const SPAWN = new THREE.Vector3(0, PLATFORM.height, 1.6);
+/** Trees keep this far from the rail line plus their crown reach (TREE_REACH x scale): half the car + air. */
+const TRAIN_CLEARANCE = 2.1 + 0.4;
+const TREE_REACH = 1.35; // widest crown radius per unit of tree scale (round trees ~1.3, pines 1.0)
 
 const WOOD = '#a98d74';
 const WOOD_DARK = '#7d6655';
@@ -80,13 +83,27 @@ const DRESSING: Record<StationSeason, SeasonDressing> = {
   },
 };
 
-export interface StationZone extends Zone {
+/** The light part of a station, always known: what the railway needs even while it is not loaded. */
+export interface StationInfo {
   /** Season name shown when entering, e.g. "겨울". */
   name: string;
   season: StationSeason;
   palette: SeasonPalette;
-  /** Everything that belongs to the station (moves together when seen from a running train). */
+}
+
+export function stationInfo(season: StationSeason): StationInfo {
+  const dress = DRESSING[season];
+  return { name: dress.name, season, palette: dress.palette };
+}
+
+export interface StationZone extends Zone, StationInfo {
+  /** The station's place on the line; moves when seen from a running train. Its position is the
+   *  station's world offset. Other things (like footprints) may live here too and outlast the zone. */
   root: THREE.Group;
+  /** Everything this zone built, under root; removed and disposed by dispose(). */
+  content: THREE.Group;
+  /** Registers GPU resources made for this station elsewhere (boat, zipline seat) so they go with it. */
+  track: Track;
   /** While set and true for x, the rail-side edge of the platform is open (train doors). */
   railGate: ((x: number) => boolean) | null;
   /** The stream, if this station has one (local coordinates, relative to root). */
@@ -103,7 +120,8 @@ interface Collider {
   r: number;
 }
 
-export function buildStation(scene: THREE.Scene, season: StationSeason): StationZone {
+/** Builds a station's content under `root` (which the railway places on the line). */
+export function buildStation(root: THREE.Group, season: StationSeason): StationZone {
   const dress = DRESSING[season];
   const rand = seededRandom(dress.seed);
   const disposables: { dispose: () => void }[] = [];
@@ -113,26 +131,26 @@ export function buildStation(scene: THREE.Scene, season: StationSeason): Station
   };
   const colliders: Collider[] = [];
 
-  const root = new THREE.Group();
-  root.add(createGround(track, dress.palette), createPlatform(track, colliders, dress));
+  const content = new THREE.Group();
+  content.add(createGround(track, dress.palette), createPlatform(track, colliders, dress));
   // The stream has its own seed so the rest of the layout keeps its own sequence.
   const creek = dress.creek ? createCreek(track, seededRandom(dress.seed + 1)) : null;
   if (creek) {
-    root.add(...creek.objects);
+    content.add(...creek.objects);
     colliders.push(...creek.colliders);
   }
   const zipline = creek ? createZipline(track) : null;
   if (zipline) {
-    root.add(...zipline.objects);
+    content.add(...zipline.objects);
     colliders.push(...zipline.colliders);
   }
   const signposts = creek && zipline ? createSignposts(track, creek, zipline) : null;
   if (signposts) {
-    root.add(...signposts.objects);
+    content.add(...signposts.objects);
     colliders.push(...signposts.colliders);
   }
-  root.add(...createNature(track, rand, colliders, dress, creek, zipline));
-  scene.add(root);
+  content.add(...createNature(track, rand, colliders, dress, creek, zipline));
+  root.add(content);
 
   const heightAt = (x: number, z: number): number => {
     if (x > PLATFORM.minX && x < PLATFORM.maxX && z > PLATFORM.minZ && z < PLATFORM.maxZ) return PLATFORM.height;
@@ -181,6 +199,8 @@ export function buildStation(scene: THREE.Scene, season: StationSeason): Station
     season,
     palette: dress.palette,
     root,
+    content,
+    track,
     railGate: null,
     creek,
     zipline,
@@ -193,8 +213,9 @@ export function buildStation(scene: THREE.Scene, season: StationSeason): Station
     update: creek ? (dt) => creek.update(dt) : undefined,
     constrain,
     dispose: () => {
-      scene.remove(root);
+      root.remove(content);
       disposables.forEach((d) => d.dispose());
+      disposables.length = 0;
     },
   };
   return zone;
@@ -357,7 +378,10 @@ function createNature(
   // Trees inside the walkable area: small groves with open meadows between them,
   // plus a few lone trees.
   const treeSpots: { x: number; z: number; scale: number }[] = [];
+  // Passing trains must clear every crown: half the car, a little air, and the crown's reach.
+  const clearsTrain = (z: number, scale: number) => Math.abs(z - RAIL_Z) > TRAIN_CLEARANCE + TREE_REACH * scale;
   const addTree = (x: number, z: number, scale: number) => {
+    if (!clearsTrain(z, scale)) return;
     placed.push({ x, z, r: 0.7 * scale });
     treeSpots.push({ x, z, scale });
     colliders.push({ x, z, r: 0.38 * scale });
@@ -391,8 +415,8 @@ function createNature(
       const r = radius + (rand() - 0.5) * 0.8;
       const x = Math.cos(a) * r;
       const z = Math.sin(a) * r;
-      if (Math.abs(z - RAIL_Z) < 3.6 || isReserved(x, z, 0)) continue;
       const scale = 1.1 + rand() * 0.6;
+      if (!clearsTrain(z, scale) || isReserved(x, z, 0)) continue;
       placed.push({ x, z, r: 0.7 * scale });
       treeSpots.push({ x, z, scale });
     }
@@ -402,6 +426,7 @@ function createNature(
     const spot = tryPlace(WORLD_RADIUS + 4, WORLD_RADIUS + 18, 1.8, 0);
     if (!spot) continue;
     const scale = 1.2 + rand() * 0.9;
+    if (!clearsTrain(spot.z, scale)) continue;
     placed.push({ ...spot, r: 0.7 * scale });
     treeSpots.push({ ...spot, scale });
   }
