@@ -8,6 +8,9 @@ import { box, cylinder, merge, propMaterial, seededRandom, type Track } from './
 import { createPineGeometry, createRoundTreeGeometry } from './props';
 import type { SeasonPalette } from './seasons';
 
+/** Distance between the two rails (m). */
+const RAIL_GAUGE = 2.0;
+
 export const CHUNK = 120;
 const STATION_CLEARANCE = 80; // no scenery trees within this distance of a station along the track
 const GROUND_WIDTH = 200;
@@ -54,12 +57,13 @@ export class TrackScenery {
     const rand = seededRandom(41);
     const railGeo = track(
       merge([
-        box(CHUNK, 0.02, 2.2, CHUNK / 2, 0.01, 0, '#c9d0d9'), // gravel bed
-        box(CHUNK, 0.04, 0.07, CHUNK / 2, 0.04, -0.6, '#6f7782'),
-        box(CHUNK, 0.04, 0.07, CHUNK / 2, 0.04, 0.6, '#6f7782'),
+        // Gauge wide enough for the 4.2 m car to look like it rides on it (car about twice the gauge).
+        box(CHUNK, 0.02, 3.4, CHUNK / 2, 0.01, 0, '#c9d0d9'), // gravel bed
+        box(CHUNK, 0.05, 0.09, CHUNK / 2, 0.045, -RAIL_GAUGE / 2, '#6f7782'),
+        box(CHUNK, 0.05, 0.09, CHUNK / 2, 0.045, RAIL_GAUGE / 2, '#6f7782'),
       ]),
     );
-    const sleeperGeo = track(box(0.28, 0.025, 1.6, 0, 0.0125, 0, '#6d5a4c'));
+    const sleeperGeo = track(box(0.32, 0.025, RAIL_GAUGE + 0.6, 0, 0.0125, 0, '#6d5a4c'));
     const poleGeo = track(
       merge([cylinder(0.08, 6.5, 0, 3.25, 0, '#6b5848'), box(0.08, 0.08, 1.2, 0, 5.2, 0, '#6b5848')]),
     );
