@@ -11,6 +11,10 @@ public/audio/spring/:
   rain.m4a      sprite of four short spells of soft raindrops, played now and then
   grass.m4a     sprite of single footsteps on grass
   zipwind.m4a   seamless loop: wind past the ears on the zipline (level follows speed at runtime)
+public/audio/summer/:
+  ambience.m4a  seamless loop: small waves on a quiet beach, with cicadas far off
+  sand.m4a      sprite of single footsteps on sand
+  gulls.m4a     sprite of four gull calls, softened to sound far off, played now and then
 public/audio/train/:
   interior.m4a  seamless loop: inside a wooden carriage on the move (voice-free part only)
   rumble.m4a    seamless loop: a passing train, low-passed and evened out to a soft distant rumble
@@ -253,6 +257,44 @@ def build_train_rumble() -> None:
     print(f'train rumble: {len(loop) / SR:.1f}s')
 
 
+def build_summer_ambience() -> None:
+    loop_len, overlap = 60.0, 4.0
+    total = loop_len + overlap
+    waves = gain_to(seconds(load('376795__amholma__gentle-waves-quiet-beach.wav'), 25, 25 + total), -27)
+    # Cicadas from far away: softened highs, well under the waves.
+    cicadas_src = load('815112__lfinck__cicadas-cigales-south-of-france-2.wav')
+    cicadas = gain_to(lowpass(seconds(crossfade_tile(seconds(cicadas_src, 5, 58), total, 4), 0, total), 4500, 2), -41)
+    n = min(len(waves), len(cicadas))
+    loop = limit_peak(gain_to(seamless_loop(waves[:n] + cicadas[:n], loop_len, overlap), -26), -3)
+    save(loop, 'summer/ambience.m4a', '80k')
+    print(f'summer ambience: {len(loop) / SR:.1f}s, {rms_db(loop):.1f} dB RMS')
+
+
+def build_gulls() -> dict:
+    # Two laughing runs and two single cries, with the highs softened so they sound far away.
+    src = load('586831__speakingmusic__seagull.wav')
+    windows = [(2.8, 7.0), (8.4, 9.1), (12.3, 17.6), (19.4, 20.6)]
+    clips = [limit_peak(gain_to(fade(lowpass(seconds(src, a, b), 3500, 2), 0.08, 0.3), -30), -8) for a, b in windows]
+    data, offsets = sprite(clips, 0.5, 'gull')
+    save(data, 'summer/gulls.m4a', '64k')
+    print(f'gulls: {len(clips)} clips, {len(data) / SR:.1f}s')
+    return offsets
+
+
+def build_sand_steps() -> dict:
+    # Each recorded step is a long slide; keep the first 0.4 s (the crunch) and fade the rest.
+    src = load('164459__martinimeniscus__foot-steps-on-sand-ff661.aiff', channels=1)
+    onsets = [2.45, 4.12, 5.70, 7.32, 8.96, 10.64, 12.24, 13.87]
+    clips = []
+    for t in onsets:
+        c = fade(seconds(src, t - 0.02, t + 0.42), 0.005, 0.18)
+        clips.append(c * (10 ** (-6 / 20) / np.max(np.abs(c))))
+    data, offsets = sprite(clips, 0.3, 'sand')
+    save(data, 'summer/sand.m4a', '96k')
+    print(f'sand steps: {len(clips)} clips, {len(data) / SR:.1f}s')
+    return offsets
+
+
 def build_zip_wind() -> None:
     # Even foley wind; a 24 s seamless loop is plenty for a 9 s ride.
     loop_len, overlap = 24.0, 4.0
@@ -300,6 +342,7 @@ if __name__ == '__main__':
     build_spring_ambience()
     build_creek()
     build_zip_wind()
+    build_summer_ambience()
     build_train_interior()
     build_train_rumble()
     sprites = {
@@ -308,6 +351,8 @@ if __name__ == '__main__':
         'wood': build_wood_steps(),
         'rain': build_rain(),
         'grass': build_grass_steps(),
+        'sand': build_sand_steps(),
+        'gulls': build_gulls(),
     }
     SPRITES.parent.mkdir(parents=True, exist_ok=True)
     SPRITES.write_text(json.dumps(sprites, indent=2) + '\n', encoding='utf-8')

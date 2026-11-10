@@ -19,7 +19,7 @@ const palette = (p: Record<keyof SeasonPalette, string>): SeasonPalette => ({
   mountain: new THREE.Color(p.mountain),
 });
 
-export const PALETTES: Record<'winter' | 'spring', SeasonPalette> = {
+export const PALETTES: Record<'winter' | 'spring' | 'summer', SeasonPalette> = {
   winter: palette({
     skyTop: '#9fbad6',
     horizon: '#e3e9f0',
@@ -34,7 +34,21 @@ export const PALETTES: Record<'winter' | 'spring', SeasonPalette> = {
     groundShade: '#a3c486',
     mountain: '#aac3b8',
   }),
+  summer: palette({
+    skyTop: '#86c4e6',
+    horizon: '#eef4ee',
+    ground: '#eedfba', // sand
+    groundShade: '#e2cfa3',
+    mountain: '#a6c5c6', // hazy islands
+  }),
 };
+
+/** How much of each season is present at a place on the line (they add up to 1). */
+export type SeasonWeights = Record<Season, number>;
+
+export function emptyWeights(): SeasonWeights {
+  return { spring: 0, summer: 0, autumn: 0, winter: 0 };
+}
 
 export function lerpPalette(a: SeasonPalette, b: SeasonPalette, t: number, out: SeasonPalette): SeasonPalette {
   for (const key of Object.keys(out) as (keyof SeasonPalette)[]) out[key].copy(a[key]).lerp(b[key], t);

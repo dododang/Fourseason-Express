@@ -27,7 +27,7 @@ import {
 } from '../scenes/trainCar';
 import { TrackScenery, CHUNK, type SeasonSample } from '../scenes/trackScenery';
 import { PLATFORM, RAIL_Z, stationInfo, type StationInfo, type StationSeason, type StationZone } from '../scenes/station';
-import { clonePalette, lerpPalette } from '../scenes/seasons';
+import { clonePalette, emptyWeights, lerpPalette } from '../scenes/seasons';
 import type { Track } from '../scenes/lowpoly';
 
 // Test timetable (seconds): about 40 s of travel between stations.
@@ -100,7 +100,7 @@ export class Railway {
       this.cars.push(car);
       this.carX.push(0);
     }
-    this.sample = { palette: clonePalette(stations[0].palette), winter: 1 };
+    this.sample = { palette: clonePalette(stations[0].palette), weights: emptyWeights() };
     this.scenery = new TrackScenery(
       track,
       this.loop,
@@ -212,9 +212,10 @@ export class Railway {
     const a = this.slots[i].info;
     const b = this.slots[(i + 1) % n].info;
     lerpPalette(a.palette, b.palette, t, this.sample.palette);
-    const wa = a.season === 'winter' ? 1 : 0;
-    const wb = b.season === 'winter' ? 1 : 0;
-    this.sample.winter = wa + (wb - wa) * t;
+    const w = this.sample.weights;
+    for (const season of Object.keys(w) as (keyof typeof w)[]) w[season] = 0;
+    w[a.season] += 1 - t;
+    w[b.season] += t;
     return this.sample;
   }
 

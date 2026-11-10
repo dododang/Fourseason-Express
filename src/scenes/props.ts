@@ -63,6 +63,49 @@ export function createMoundGeometry(color: string, faceted: boolean): THREE.Buff
   return paint(g, color, { flat: faceted, min: faceted ? 0.7 : 0.86 });
 }
 
+/** Palm: a gently leaning, banded trunk with drooping fronds and a few coconuts. About 4 m tall. */
+export function createPalmGeometry(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const segments = 6;
+  const segLen = 0.66;
+  const lean = (y: number) => 0.06 * y * y; // trunk drifts sideways as it rises
+  for (let i = 0; i < segments; i++) {
+    const y0 = i * segLen;
+    const y1 = y0 + segLen;
+    const g = new THREE.CylinderGeometry(0.16 - i * 0.008, 0.17 - i * 0.008, segLen * 1.02, 6);
+    g.rotateZ(-Math.atan2(lean(y1) - lean(y0), segLen));
+    g.translate((lean(y0) + lean(y1)) / 2, (y0 + y1) / 2, 0);
+    parts.push(paint(g, i % 2 ? '#a9845e' : '#b9946b', { min: 0.72 }));
+  }
+  const topY = segments * segLen;
+  const topX = lean(topY);
+  const fronds = 7;
+  for (let k = 0; k < fronds; k++) {
+    const leaf = new THREE.ConeGeometry(0.3, 2.0, 4);
+    leaf.scale(1, 1, 0.22); // flat blade
+    leaf.translate(0, 1.0, 0); // base at the crown
+    leaf.rotateZ(-Math.PI / 2 - 0.22 - (k % 2) * 0.18); // out, drooping a little below level
+    leaf.rotateY((k / fronds) * Math.PI * 2 + 0.3);
+    leaf.translate(topX, topY, 0);
+    parts.push(paint(leaf, k % 2 ? '#7fb87a' : '#8cc286', { min: 0.68 }));
+  }
+  for (let k = 0; k < 3; k++) {
+    const a = (k / 3) * Math.PI * 2;
+    const nut = new THREE.IcosahedronGeometry(0.12, 0);
+    nut.translate(topX + Math.cos(a) * 0.16, topY - 0.15, Math.sin(a) * 0.16);
+    parts.push(paint(nut, '#8a6a4a', { min: 0.7 }));
+  }
+  return merge(parts);
+}
+
+/** A small flat shell lying on the sand; tinted per instance. */
+export function createShellGeometry(): THREE.BufferGeometry {
+  const shell = new THREE.ConeGeometry(0.07, 0.03, 6);
+  shell.scale(1, 1, 0.8);
+  shell.translate(0, 0.015, 0);
+  return paint(shell, '#ffffff', { min: 0.8 });
+}
+
 /** A tiny flower head sitting on the grass; tinted per instance. */
 export function createFlowerGeometry(): THREE.BufferGeometry {
   const head = new THREE.OctahedronGeometry(0.07, 0);

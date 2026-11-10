@@ -7,12 +7,15 @@ import { box, cylinder, merge, propMaterial, seededRandom, type Track } from './
 import {
   createFlowerGeometry,
   createMoundGeometry,
+  createPalmGeometry,
+  createShellGeometry,
   createPineGeometry,
   createRockGeometry,
   createRoundTreeGeometry,
   radialTexture,
 } from './props';
 import { createCreek, type Creek } from './creek';
+import { createSea, shoreZ, type Sea } from './sea';
 import { createZipline, type Zipline } from './zipline';
 import { createSignposts, type Signpost } from './signposts';
 import { PALETTES, type SeasonPalette } from './seasons';
@@ -33,7 +36,7 @@ const WOOD = '#a98d74';
 const WOOD_DARK = '#7d6655';
 const POLE = '#4a4f58';
 
-export type StationSeason = 'winter' | 'spring';
+export type StationSeason = 'winter' | 'spring' | 'summer';
 
 interface SeasonDressing {
   name: string;
@@ -47,8 +50,14 @@ interface SeasonDressing {
   mound: { color: string; faceted: boolean };
   edgeColor: string; // strip along the platform's village-side edge
   flowers: number;
+  /** Colors the little ground details are tinted with (flowers, or shells on the beach). */
+  flowerTints: string[];
+  /** Shells instead of flowers. */
+  shells?: boolean;
   /** A stream with a footbridge behind the village. */
   creek: boolean;
+  /** The far side of the village is a beach and the sea. */
+  sea: boolean;
 }
 
 const DRESSING: Record<StationSeason, SeasonDressing> = {
@@ -63,7 +72,9 @@ const DRESSING: Record<StationSeason, SeasonDressing> = {
     mound: { color: '#f4f7fb', faceted: false },
     edgeColor: '#f1f4f8',
     flowers: 0,
+    flowerTints: [],
     creek: false,
+    sea: false,
   },
   spring: {
     name: '봄',
@@ -79,7 +90,28 @@ const DRESSING: Record<StationSeason, SeasonDressing> = {
     mound: { color: '#7fa866', faceted: true },
     edgeColor: '#9fc283',
     flowers: 420,
+    flowerTints: ['#ffffff', '#ffe58a', '#f6b8c8', '#c9b6e8', '#ffd1a6'],
     creek: true,
+    sea: false,
+  },
+  summer: {
+    name: '여름',
+    seed: 20260801,
+    palette: PALETTES.summer,
+    surface: 'sand',
+    snowfall: false,
+    trees: [
+      { geo: createPalmGeometry, weight: 0.6 },
+      { geo: () => createRoundTreeGeometry('#86c07a', 47), weight: 0.4 },
+    ],
+    rock: { color: '#c9b08e', snow: false }, // sandstone
+    mound: { color: '#ead9b2', faceted: false }, // low dunes
+    edgeColor: '#e6d4ac',
+    flowers: 160, // shells
+    flowerTints: ['#fff7ee', '#f7d6d0', '#f3e2c4', '#e9eef2'],
+    shells: true,
+    creek: false,
+    sea: true,
   },
 };
 
@@ -135,6 +167,8 @@ export function buildStation(root: THREE.Group, season: StationSeason): StationZ
   content.add(createGround(track, dress.palette), createPlatform(track, colliders, dress));
   // The stream has its own seed so the rest of the layout keeps its own sequence.
   const creek = dress.creek ? createCreek(track, seededRandom(dress.seed + 1)) : null;
+  const sea = dress.sea ? createSea(track) : null;
+  if (sea) content.add(...sea.objects);
   if (creek) {
     content.add(...creek.objects);
     colliders.push(...creek.colliders);
@@ -149,7 +183,7 @@ export function buildStation(root: THREE.Group, season: StationSeason): StationZ
     content.add(...signposts.objects);
     colliders.push(...signposts.colliders);
   }
-  content.add(...createNature(track, rand, colliders, dress, creek, zipline));
+  content.add(...createNature(track, rand, colliders, dress, creek, zipline, sea));
   root.add(content);
 
   const heightAt = (x: number, z: number): number => {
@@ -179,6 +213,8 @@ export function buildStation(root: THREE.Group, season: StationSeason): StationZ
         p.z = c.z + (dz / d) * min;
       }
     }
+    // At the beach you can paddle a step into the foam, but no farther out to sea.
+    if (sea) p.z = Math.max(p.z, shoreZ(p.x) - 0.5);
     // Keep out of the water, except on the bridge and piers: step back to the bank.
     if (creek && !creek.onDeck(p.x, p.z)) {
       const inside = creek.nearest(p.x, p.z, near) + radius * 0.5;
@@ -210,7 +246,10 @@ export function buildStation(root: THREE.Group, season: StationSeason): StationZ
     snowfall: dress.snowfall,
     heightAt,
     surfaceAt: (x, z) => (heightAt(x, z) > 0 || creek?.onDeck(x, z) ? 'wood' : dress.surface),
-    update: creek ? (dt) => creek.update(dt) : undefined,
+    update: (dt) => {
+      creek?.update(dt);
+      sea?.update(dt);
+    },
     constrain,
     dispose: () => {
       root.remove(content);
@@ -350,11 +389,13 @@ function createNature(
   dress: SeasonDressing,
   creek: Creek | null,
   zipline: Zipline | null,
+  sea: Sea | null,
 ): THREE.Object3D[] {
   const isReserved = (x: number, z: number, margin: number) =>
     isStationReserved(x, z, margin) ||
     (creek !== null && creek.reserved(x, z, margin)) ||
-    (zipline !== null && zipline.reserved(x, z, margin));
+    (zipline !== null && zipline.reserved(x, z, margin)) ||
+    (sea !== null && sea.reserved(x, z, margin));
   const placed: { x: number; z: number; r: number }[] = [];
   const tryPlace = (minR: number, maxR: number, spacing: number, margin: number) => {
     for (let attempt = 0; attempt < 40; attempt++) {
@@ -495,8 +536,8 @@ function createNature(
 
   // Wildflowers scattered in loose drifts; no collision, you walk through them.
   if (dress.flowers > 0) {
-    const flowers = new THREE.InstancedMesh(track(createFlowerGeometry()), propMaterial, dress.flowers);
-    const tints = ['#ffffff', '#ffe58a', '#f6b8c8', '#c9b6e8', '#ffd1a6'].map((c) => new THREE.Color(c));
+    const flowers = new THREE.InstancedMesh(track(dress.shells ? createShellGeometry() : createFlowerGeometry()), propMaterial, dress.flowers);
+    const tints = dress.flowerTints.map((c) => new THREE.Color(c));
     let n = 0;
     while (n < dress.flowers) {
       // Drift center, then a handful of flowers around it.

@@ -41,11 +41,11 @@ const track: Track = (d) => {
   disposables.push(d);
   return d;
 };
-// Stations in line order. The loop runs winter -> spring -> back to winter for now;
-// the full line will be spring -> summer -> autumn -> winter -> spring (CLAUDE.md).
+// Stations in line order: winter -> spring -> summer -> back to winter for now. Autumn will
+// sit between summer and winter: spring -> summer -> autumn -> winter -> spring (CLAUDE.md).
 // The railway builds each station's scenery only when it is near (lazy loading).
 const backdrop = new Backdrop(scene, track, stationInfo('winter').palette);
-const railway = new Railway(scene, track, ['winter', 'spring'], buildStation);
+const railway = new Railway(scene, track, ['winter', 'spring', 'summer'], buildStation);
 const footprints = new Footprints();
 const snowfall = new Snowfall();
 // Prints belong to the winter station's place on the line, so they outlast a reload of its scenery.
@@ -408,9 +408,9 @@ renderer.setAnimationLoop(() => {
   const season = railway.viewSeason;
   backdrop.setPalette(season.palette);
   const indoors = railway.isInside(camera.position);
-  snowfall.setIntensity(season.winter);
-  snowfall.points.visible = !indoors && season.winter > 0.01;
-  audio.setSeasonMix({ winter: season.winter, spring: 1 - season.winter });
+  snowfall.setIntensity(season.weights.winter);
+  snowfall.points.visible = !indoors && season.weights.winter > 0.01;
+  audio.setSeasonMix(season.weights);
   updateCreekSound();
   audio.setZipSpeed(onZip && rides ? rides.zip.speedRatio : 0);
   audio.setIndoor(onBoardTrain, railway.doorOpen);

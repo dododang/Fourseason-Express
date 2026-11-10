@@ -118,6 +118,16 @@ CLAUDE.md가 "무엇을, 왜" 만드는지를 정리한 문서라면, 이 문서
   - [x] 2-8. 짚라인 (`src/scenes/zipline.ts`, `src/systems/ziplineRide.ts`): 나루터 옆 탑 아래에서 "짚라인 타기", 화면이 밝아졌다 탑 위 그네 의자에 앉은 채로 시작, 선착장 근처 받침대까지 미끄러져 내려와 내린다. 빈 의자는 혼자 올라간다
   - [x] 2-8. 짚라인 소리: 귀를 스치는 바람 하나만, 속도에 맞춰 커지고 살짝 높아진다 (도르래 소리는 넣지 않기로 함)
 - **3단계, 사계절과 활동**: 나머지 역, 계절별 활동, 서버 시간 기준 열차 시간표. 네 역을 같은 간격과 같은 크기로 놓고 열차 4대를 동시에 운행한다.
+  - [x] 3-1. 여름역: 모래 바닥, 마을 안쪽 끝은 바다(물가 거품이 밀려왔다 빠짐, 젖은 모래), 야자수와 초록 나무, 모래 언덕, 사암 바위, 조개껍데기 (`src/scenes/sea.ts`)
+  - [x] 3-1. 노선 겨울 → 봄 → 여름 → 겨울 (가을은 여름과 겨울 사이에 들어감). 계절 섞기를 계절별 비율로 일반화, 선로 옆 나무에 야자수 추가
+  - [x] 3-1. 여름 소리: 파도 + 멀리서 들리는 매미 배경음(60초 반복), 모래 발소리
+  - [x] 3-1. 갈매기: 울음 네 가지를 멀리서 들리게 다듬어 25~60초마다 한 번씩, 왼쪽이나 오른쪽에서
+    - 후보 (모두 CC0 확인, 2026-11-04). ⭐ 표시가 추천
+      - 파도: ⭐ https://freesound.org/people/amholma/sounds/376795/ (조용한 해변 잔물결, 1:40) / https://freesound.org/people/Tom_Kaszuba/sounds/659002/ (1:08) / https://freesound.org/people/Alex_hears_things/sounds/352356/ (아주 가까이, 2:44)
+      - 갈매기: ⭐ https://freesound.org/people/selcukartut/sounds/546565/ (조용한 바닷가, 멀리 갈매기, 4:00) / https://freesound.org/people/TeTeNoise/sounds/517678/ (파도와 갈매기, 3:14)
+      - 매미: ⭐ https://freesound.org/people/L.Finck/sounds/815112/ (남프랑스, 1:16) / https://freesound.org/people/felix.blume/sounds/536915/ (1시간, 659MB라 받기 무거움)
+      - 모래 발소리: ⭐ https://freesound.org/people/martinimeniscus/sounds/164459/ (고른 걸음, 0:29) / https://freesound.org/people/Daphne_in_Wonderland/sounds/383490/ (젖은 모래, 여러 속도, 1:15)
+      - 제외: HECKFRICKER 매미 (멀리 차 소리, 에어컨 소리가 섞임)
 - **4단계, 함께 있는 느낌과 공개**: 같은 역 인원 표시부터 시작해서 다른 사람 모습, 인원 제한과 채널 분산, 배포.
 
 ---

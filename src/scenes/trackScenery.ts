@@ -5,8 +5,8 @@
 // Trees near a station are hidden so they don't clash with the station's own layout.
 import * as THREE from 'three';
 import { box, cylinder, merge, propMaterial, seededRandom, type Track } from './lowpoly';
-import { createPineGeometry, createRoundTreeGeometry } from './props';
-import type { SeasonPalette } from './seasons';
+import { createPineGeometry, createRoundTreeGeometry, createPalmGeometry } from './props';
+import type { SeasonPalette, Season, SeasonWeights } from './seasons';
 
 /** Distance between the two rails (m). */
 const RAIL_GAUGE = 2.0;
@@ -16,11 +16,19 @@ const STATION_CLEARANCE = 80; // no scenery trees within this distance of a stat
 const GROUND_WIDTH = 200;
 const GROUND_STEPS = 12; // color samples along a chunk
 
-/** Season mix at a track position: palette plus how wintry (pines) vs springlike (round trees) it is. */
+/** Season mix at a track position: blended palette plus how much of each season is present. */
 export interface SeasonSample {
   palette: SeasonPalette;
-  winter: number; // 0..1, the rest is spring
+  weights: SeasonWeights;
 }
+
+/** Which trackside trees each season shows, as shares of [pine, green round, blossom, palm]. */
+const TREE_MIX: Record<Season, number[]> = {
+  winter: [1, 0, 0, 0],
+  spring: [0, 0.6, 0.4, 0],
+  summer: [0, 0.45, 0, 0.55],
+  autumn: [0.2, 0.8, 0, 0],
+};
 
 interface TreeSlot {
   x: number;
@@ -43,6 +51,7 @@ export class TrackScenery {
   private chunks: ChunkMesh[] = [];
   private m = new THREE.Matrix4();
   private q = new THREE.Quaternion();
+  private kindShare = [0, 0, 0, 0];
   private p = new THREE.Vector3();
   private s = new THREE.Vector3();
   private zero = new THREE.Vector3(0, 0, 0);
@@ -71,6 +80,7 @@ export class TrackScenery {
       track(createPineGeometry()),
       track(createRoundTreeGeometry('#8fbf72', 29)),
       track(createRoundTreeGeometry('#f2bfcd', 11)),
+      track(createPalmGeometry()),
     ];
 
     for (let c = 0; c < 3; c++) {
@@ -155,9 +165,20 @@ export class TrackScenery {
         const d = ((((u - st) % this.loop) + this.loop * 1.5) % this.loop) - this.loop / 2;
         return Math.abs(d) < STATION_CLEARANCE;
       });
-      const { winter } = this.seasonAt(u);
-      // Pines where it is wintry; in spring, mostly green trees with some blossoms.
-      const kind = t.pick < winter ? 0 : t.pick < winter + (1 - winter) * 0.6 ? 1 : 2;
+      // Each slot's fixed random pick falls into the local mix of tree kinds.
+      const { weights } = this.seasonAt(u);
+      let kind = 0;
+      let acc = 0;
+      for (let k = 0; k < this.kindShare.length; k++) {
+        this.kindShare[k] = 0;
+        for (const season of Object.keys(weights) as Season[]) this.kindShare[k] += weights[season] * TREE_MIX[season][k];
+        acc += this.kindShare[k];
+        if (t.pick < acc) {
+          kind = k;
+          break;
+        }
+        kind = k;
+      }
       this.q.setFromAxisAngle(this.up, t.rot);
       chunk.kinds.forEach((mesh, k) => {
         const show = !nearStation && k === kind;

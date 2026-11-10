@@ -20,6 +20,10 @@
 | 봄 배경음 새소리 (`spring/ambience.m4a`) | Birds Singing Dawn Chorus | SamsterBirdies | https://freesound.org/people/SamsterBirdies/sounds/578523/ |
 | 봄 가끔 빗방울 (`spring/rain.m4a`) | Soft rain drops | brunoauzet | https://freesound.org/s/664162/ |
 | 짚라인 바람 (`spring/zipwind.m4a`) | Sonido Viento Fondo | josecruz98 | https://freesound.org/people/josecruz98/sounds/393007/ |
+| 여름 배경음 파도 (`summer/ambience.m4a`) | Gentle Waves - Quiet Beach | amholma | https://freesound.org/people/amholma/sounds/376795/ |
+| 여름 배경음 먼 매미 (`summer/ambience.m4a`) | Cicadas - Cigales - South of France 2 | L.Finck | https://freesound.org/people/L.Finck/sounds/815112/ |
+| 가끔 우는 갈매기 (`summer/gulls.m4a`) | seagull.wav | speakingmusic | https://freesound.org/people/speakingmusic/sounds/586831/ |
+| 모래 발소리 (`summer/sand.m4a`) | Foot steps on sand FF661 | martinimeniscus | https://freesound.org/people/martinimeniscus/sounds/164459/ |
 | 열차 실내 (`train/interior.m4a`, 말소리 없는 앞 55초만) | Steam Train Interior | allh | https://freesound.org/people/allh/sounds/133099/ |
 | 바깥 열차 소리 (`train/rumble.m4a`, 낮은 소리만 남김) | Train passing by | Soundkrampf | https://freesound.org/people/Soundkrampf/sounds/237327/ |
 | 풀 밟는 소리 (`spring/grass.m4a`) | Grassy Footstep 1~4 (Footsteps 팩) | OwlStorm | https://freesound.org/people/OwlStorm/packs/9344/ (151230, 151229, 151228, 151235) |

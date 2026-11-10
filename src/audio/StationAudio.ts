@@ -4,11 +4,13 @@
 // Files are built by scripts/build_audio.py from the originals listed in ASSETS.md.
 import { Howl, Howler } from 'howler';
 import sprites from './sprites.json';
+import type { SeasonWeights } from '../scenes/seasons';
 
 const BASE = `${import.meta.env.BASE_URL}audio/`;
 
 const AMBIENCE_VOLUME = 0.68;
 const SPRING_BED = 0.65; // birdsong sits a little lower than the winter wind (about -3.7 dB)
+const SUMMER_BED = 0.8; // waves
 const CREEK_VOLUME = 0.7; // right next to the stream
 const CREEK_FLOOR = 0.35; // share still heard from far away
 const CREEK_REACH = 5; // meters; beyond this the creek fades toward the floor
@@ -27,10 +29,11 @@ const INDOOR_FADE = 1.5; // seconds, doors closing or opening
 type SpriteMap = Record<string, [number, number]>;
 const spriteMap = (s: Record<string, number[]>) => s as unknown as SpriteMap;
 
-export type Surface = 'snow' | 'grass' | 'wood';
-type BedSeason = 'winter' | 'spring';
-/** How much each season is heard, 0..1. Weights should add up to 1. */
-export type SeasonMix = Record<BedSeason, number>;
+export type { Surface } from '../scenes/zone';
+import type { Surface } from '../scenes/zone';
+type BedSeason = 'winter' | 'spring' | 'summer';
+/** How much each season is heard, 0..1. Weights should add up to 1. Seasons without sounds yet stay quiet. */
+export type SeasonMix = SeasonWeights;
 
 /** A sound played now and then from a random side, never the same clip twice in a row. */
 class Occasional {
@@ -70,6 +73,7 @@ class Steps {
     private howl: Howl,
     sprite: SpriteMap,
     private relative: number,
+    private pitch = 1,
   ) {
     this.names = Object.keys(sprite);
   }
@@ -78,7 +82,7 @@ class Steps {
     const i = pickOther(this.names.length, this.last, (k) => (this.last = k));
     const id = this.howl.play(this.names[i]);
     this.howl.volume(level * this.relative * randomBetween(0.85, 1.0), id);
-    this.howl.rate(randomBetween(0.92, 1.08), id);
+    this.howl.rate(this.pitch * randomBetween(0.92, 1.08), id);
   }
 }
 
@@ -86,7 +90,7 @@ interface Bed {
   ambience: Howl;
   level: number; // bed volume relative to AMBIENCE_VOLUME
   id: number;
-  occasional: Occasional;
+  occasional: Occasional | null;
   volume: number; // last volume set, to skip redundant calls
 }
 
@@ -94,7 +98,7 @@ export class StationAudio {
   private beds: Record<BedSeason, Bed>;
   private steps: Record<Surface, Steps>;
   private howls: Howl[] = [];
-  private mix: SeasonMix = { winter: 1, spring: 0 };
+  private mix: SeasonMix = { winter: 1, spring: 0, summer: 0, autumn: 0 };
   private started = false;
   private startLevel = 0; // 0..1 fade-in after the first tap
   private indoorTarget = 1; // 1 outside, lower inside the car
@@ -143,6 +147,13 @@ export class StationAudio {
         occasional: new Occasional(howl('spring/rain.m4a', spriteMap(sprites.rain)), spriteMap(sprites.rain), 0.5, [40, 100]),
         volume: -1,
       },
+      summer: {
+        ambience: loop('summer/ambience.m4a'),
+        level: SUMMER_BED,
+        id: 0,
+        occasional: new Occasional(howl('summer/gulls.m4a', spriteMap(sprites.gulls)), spriteMap(sprites.gulls), 0.4, [25, 60]),
+        volume: -1,
+      },
     };
     this.creek = loop('spring/creek.m4a');
     this.zipWind = loop('spring/zipwind.m4a');
@@ -152,6 +163,7 @@ export class StationAudio {
       snow: new Steps(howl('winter/steps.m4a', spriteMap(sprites.steps)), spriteMap(sprites.steps), 1),
       wood: new Steps(howl('winter/wood.m4a', spriteMap(sprites.wood)), spriteMap(sprites.wood), 0.7), // wood is sharper
       grass: new Steps(howl('spring/grass.m4a', spriteMap(sprites.grass)), spriteMap(sprites.grass), 0.8),
+      sand: new Steps(howl('summer/sand.m4a', spriteMap(sprites.sand)), spriteMap(sprites.sand), 0.55), // soft underfoot
     };
 
     // Go quiet while the tab or app is in the background.
@@ -224,7 +236,7 @@ export class StationAudio {
         bed.ambience.volume(volume, bed.id);
         bed.volume = volume;
       }
-      bed.occasional.update(dt, weight * this.indoorLevel);
+      bed.occasional?.update(dt, weight * this.indoorLevel);
     }
 
     // The creek belongs to spring: louder close to the water, a faint murmur from afar.

@@ -1,7 +1,7 @@
 // Common shape for every place the player can be: a station zone or the train interior.
 import type * as THREE from 'three';
 
-export type Surface = 'snow' | 'grass' | 'wood';
+export type Surface = 'snow' | 'grass' | 'sand' | 'wood';
 
 export interface Zone {
   /** Where the player appears. */

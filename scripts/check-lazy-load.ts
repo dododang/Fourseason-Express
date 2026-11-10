@@ -36,7 +36,7 @@ function fakeBuild(root: THREE.Group, season: StationSeason): StationZone {
 }
 
 const scene = new THREE.Scene();
-const railway = new Railway(scene, (d) => d, ['winter', 'spring'], fakeBuild);
+const railway = new Railway(scene, (d) => d, ['winter', 'spring', 'summer'], fakeBuild);
 let t = 0;
 railway.onLoad = (z) => events.push(`${t.toFixed(1)}s  build   ${z.season}`);
 railway.onUnload = (z) => events.push(`${t.toFixed(1)}s  dispose ${z.season}`);
