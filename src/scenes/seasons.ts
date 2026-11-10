@@ -19,7 +19,7 @@ const palette = (p: Record<keyof SeasonPalette, string>): SeasonPalette => ({
   mountain: new THREE.Color(p.mountain),
 });
 
-export const PALETTES: Record<'winter' | 'spring' | 'summer', SeasonPalette> = {
+export const PALETTES: Record<Season, SeasonPalette> = {
   winter: palette({
     skyTop: '#9fbad6',
     horizon: '#e3e9f0',
@@ -40,6 +40,13 @@ export const PALETTES: Record<'winter' | 'spring' | 'summer', SeasonPalette> = {
     ground: '#eedfba', // sand
     groundShade: '#e2cfa3',
     mountain: '#a6c5c6', // hazy islands
+  }),
+  autumn: palette({
+    skyTop: '#9dbbd6',
+    horizon: '#f2e8da',
+    ground: '#d9c08c', // dry grass under fallen leaves
+    groundShade: '#c9a671',
+    mountain: '#c7a891', // hills turning red-brown
   }),
 };
 

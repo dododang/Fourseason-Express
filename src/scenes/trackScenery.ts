@@ -5,7 +5,7 @@
 // Trees near a station are hidden so they don't clash with the station's own layout.
 import * as THREE from 'three';
 import { box, cylinder, merge, propMaterial, seededRandom, type Track } from './lowpoly';
-import { createPineGeometry, createRoundTreeGeometry, createPalmGeometry } from './props';
+import { createPineGeometry, createRoundTreeGeometry, createPalmGeometry, createGinkgoGeometry } from './props';
 import type { SeasonPalette, Season, SeasonWeights } from './seasons';
 
 /** Distance between the two rails (m). */
@@ -22,12 +22,12 @@ export interface SeasonSample {
   weights: SeasonWeights;
 }
 
-/** Which trackside trees each season shows, as shares of [pine, green round, blossom, palm]. */
+/** Which trackside trees each season shows, as shares of [pine, green round, blossom, palm, maple, ginkgo]. */
 const TREE_MIX: Record<Season, number[]> = {
-  winter: [1, 0, 0, 0],
-  spring: [0, 0.6, 0.4, 0],
-  summer: [0, 0.45, 0, 0.55],
-  autumn: [0.2, 0.8, 0, 0],
+  winter: [1, 0, 0, 0, 0, 0],
+  spring: [0, 0.6, 0.4, 0, 0, 0],
+  summer: [0, 0.45, 0, 0.55, 0, 0],
+  autumn: [0.15, 0, 0, 0, 0.5, 0.35],
 };
 
 interface TreeSlot {
@@ -41,7 +41,7 @@ interface TreeSlot {
 interface ChunkMesh {
   group: THREE.Group;
   ground: THREE.Mesh;
-  kinds: THREE.InstancedMesh[]; // pine, green round tree, blossom tree
+  kinds: THREE.InstancedMesh[]; // one per TREE_MIX kind
   slots: TreeSlot[];
   index: number | null; // which chunk of the track it currently shows
 }
@@ -51,7 +51,7 @@ export class TrackScenery {
   private chunks: ChunkMesh[] = [];
   private m = new THREE.Matrix4();
   private q = new THREE.Quaternion();
-  private kindShare = [0, 0, 0, 0];
+  private kindShare = [0, 0, 0, 0, 0, 0];
   private p = new THREE.Vector3();
   private s = new THREE.Vector3();
   private zero = new THREE.Vector3(0, 0, 0);
@@ -81,6 +81,8 @@ export class TrackScenery {
       track(createRoundTreeGeometry('#8fbf72', 29)),
       track(createRoundTreeGeometry('#f2bfcd', 11)),
       track(createPalmGeometry()),
+      track(createRoundTreeGeometry('#e0844f', 13)),
+      track(createGinkgoGeometry()),
     ];
 
     for (let c = 0; c < 3; c++) {

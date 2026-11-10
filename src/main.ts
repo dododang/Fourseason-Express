@@ -41,11 +41,10 @@ const track: Track = (d) => {
   disposables.push(d);
   return d;
 };
-// Stations in line order: winter -> spring -> summer -> back to winter for now. Autumn will
-// sit between summer and winter: spring -> summer -> autumn -> winter -> spring (CLAUDE.md).
+// Stations in line order: winter -> spring -> summer -> autumn -> back to winter (CLAUDE.md).
 // The railway builds each station's scenery only when it is near (lazy loading).
 const backdrop = new Backdrop(scene, track, stationInfo('winter').palette);
-const railway = new Railway(scene, track, ['winter', 'spring', 'summer'], buildStation);
+const railway = new Railway(scene, track, ['winter', 'spring', 'summer', 'autumn'], buildStation);
 const footprints = new Footprints();
 const snowfall = new Snowfall();
 // Prints belong to the winter station's place on the line, so they outlast a reload of its scenery.

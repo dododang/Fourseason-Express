@@ -98,6 +98,70 @@ export function createPalmGeometry(): THREE.BufferGeometry {
   return merge(parts);
 }
 
+/** Ginkgo: a tall, narrow tree with stacked yellow blobs, like a soft flame. About 4.5 m tall. */
+export function createGinkgoGeometry(): THREE.BufferGeometry {
+  let a = 53;
+  const rand = () => ((a = (a * 16807) % 2147483647) / 2147483647);
+  const parts: THREE.BufferGeometry[] = [];
+  const trunk = new THREE.CylinderGeometry(0.1, 0.15, 1.6, 5);
+  trunk.translate(0, 0.8, 0);
+  parts.push(paint(trunk, TRUNK));
+  const blobs = [
+    { x: 0, y: 1.9, z: 0, r: 0.85 },
+    { x: 0.15, y: 2.75, z: -0.1, r: 0.72 },
+    { x: -0.1, y: 3.5, z: 0.08, r: 0.55 },
+    { x: 0.05, y: 4.1, z: 0, r: 0.36 },
+  ];
+  for (const b of blobs) {
+    const g = jitter(new THREE.IcosahedronGeometry(b.r, 0), 0.22, rand);
+    g.translate(b.x, b.y, b.z);
+    parts.push(paint(g, '#f2cf5b', { min: 0.72 }));
+  }
+  return merge(parts);
+}
+
+/** Persimmon tree: a crooked trunk, a thin olive-and-rust canopy and orange fruit hanging outside it. */
+export function createPersimmonGeometry(): THREE.BufferGeometry {
+  let a = 71;
+  const rand = () => ((a = (a * 16807) % 2147483647) / 2147483647);
+  const parts: THREE.BufferGeometry[] = [];
+  const trunk = new THREE.CylinderGeometry(0.1, 0.16, 1.3, 5);
+  trunk.rotateZ(0.12);
+  trunk.translate(-0.06, 0.65, 0);
+  parts.push(paint(trunk, '#6e5648'));
+  const blobs = [
+    { x: 0, y: 1.85, z: 0, r: 0.85, c: '#b9a05a' },
+    { x: 0.6, y: 1.65, z: 0.15, r: 0.6, c: '#c98a52' },
+    { x: -0.55, y: 1.75, z: -0.2, r: 0.62, c: '#a8a05c' },
+    { x: 0.1, y: 2.4, z: -0.1, r: 0.52, c: '#c98a52' },
+  ];
+  for (const b of blobs) {
+    const g = jitter(new THREE.IcosahedronGeometry(b.r, 0), 0.25, rand);
+    g.translate(b.x, b.y, b.z);
+    parts.push(paint(g, b.c, { min: 0.7 }));
+  }
+  // Fruit just outside the canopy, so it reads from afar.
+  for (let k = 0; k < 9; k++) {
+    const ang = (k / 9) * Math.PI * 2 + rand() * 0.4;
+    const y = 1.45 + rand() * 1.0;
+    const r = 0.95 - (y - 1.45) * 0.25;
+    const fruit = new THREE.IcosahedronGeometry(0.11, 0);
+    fruit.scale(1, 0.85, 1);
+    fruit.translate(Math.cos(ang) * r, y, Math.sin(ang) * r);
+    parts.push(paint(fruit, '#f08a3c', { min: 0.8 }));
+  }
+  return merge(parts);
+}
+
+/** A fallen leaf lying flat on the ground; tinted per instance. */
+export function createLeafGeometry(): THREE.BufferGeometry {
+  const leaf = new THREE.CircleGeometry(0.14, 5);
+  leaf.rotateX(-Math.PI / 2);
+  leaf.scale(1, 1, 0.6);
+  leaf.translate(0, 0.012, 0);
+  return paint(leaf, '#ffffff', { min: 0.85 });
+}
+
 /** A small flat shell lying on the sand; tinted per instance. */
 export function createShellGeometry(): THREE.BufferGeometry {
   const shell = new THREE.ConeGeometry(0.07, 0.03, 6);

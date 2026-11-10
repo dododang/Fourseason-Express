@@ -164,6 +164,8 @@ export class StationAudio {
       wood: new Steps(howl('winter/wood.m4a', spriteMap(sprites.wood)), spriteMap(sprites.wood), 0.7), // wood is sharper
       grass: new Steps(howl('spring/grass.m4a', spriteMap(sprites.grass)), spriteMap(sprites.grass), 0.8),
       sand: new Steps(howl('summer/sand.m4a', spriteMap(sprites.sand)), spriteMap(sprites.sand), 0.55), // soft underfoot
+      // Placeholder until a dry-leaf recording is chosen: grass steps, a little brighter.
+      leaves: new Steps(howl('spring/grass.m4a', spriteMap(sprites.grass)), spriteMap(sprites.grass), 0.8, 1.12),
     };
 
     // Go quiet while the tab or app is in the background.

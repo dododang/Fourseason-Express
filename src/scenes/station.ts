@@ -6,9 +6,12 @@ import * as THREE from 'three';
 import { box, cylinder, merge, propMaterial, seededRandom, type Track } from './lowpoly';
 import {
   createFlowerGeometry,
+  createGinkgoGeometry,
+  createLeafGeometry,
   createMoundGeometry,
   createPalmGeometry,
   createShellGeometry,
+  createPersimmonGeometry,
   createPineGeometry,
   createRockGeometry,
   createRoundTreeGeometry,
@@ -36,7 +39,7 @@ const WOOD = '#a98d74';
 const WOOD_DARK = '#7d6655';
 const POLE = '#4a4f58';
 
-export type StationSeason = 'winter' | 'spring' | 'summer';
+export type StationSeason = 'winter' | 'spring' | 'summer' | 'autumn';
 
 interface SeasonDressing {
   name: string;
@@ -50,10 +53,12 @@ interface SeasonDressing {
   mound: { color: string; faceted: boolean };
   edgeColor: string; // strip along the platform's village-side edge
   flowers: number;
-  /** Colors the little ground details are tinted with (flowers, or shells on the beach). */
+  /** Colors the little ground details are tinted with (flowers, shells, fallen leaves). */
   flowerTints: string[];
-  /** Shells instead of flowers. */
-  shells?: boolean;
+  /** Shape of the little ground details (flowers unless set). */
+  detail?: () => THREE.BufferGeometry;
+  /** Each detail picks its own tint (fallen leaves) instead of one tint per drift (flowers). */
+  mixTints?: boolean;
   /** A stream with a footbridge behind the village. */
   creek: boolean;
   /** The far side of the village is a beach and the sea. */
@@ -109,9 +114,31 @@ const DRESSING: Record<StationSeason, SeasonDressing> = {
     edgeColor: '#e6d4ac',
     flowers: 160, // shells
     flowerTints: ['#fff7ee', '#f7d6d0', '#f3e2c4', '#e9eef2'],
-    shells: true,
+    detail: createShellGeometry,
     creek: false,
     sea: true,
+  },
+  autumn: {
+    name: '가을',
+    seed: 20261015,
+    palette: PALETTES.autumn,
+    surface: 'leaves',
+    snowfall: false,
+    trees: [
+      { geo: () => createRoundTreeGeometry('#e0844f', 13), weight: 0.35 }, // maple
+      { geo: () => createRoundTreeGeometry('#d9a24e', 37), weight: 0.2 }, // turning oak
+      { geo: createGinkgoGeometry, weight: 0.3 },
+      { geo: createPersimmonGeometry, weight: 0.15 },
+    ],
+    rock: { color: '#9a9184', snow: false },
+    mound: { color: '#b88a52', faceted: true }, // rust-brown shrubs
+    edgeColor: '#d1a868', // leaves drifted against the platform
+    flowers: 900, // fallen leaves
+    flowerTints: ['#e9824e', '#f2c45a', '#d9603f', '#e8a24c', '#c98a52'],
+    detail: createLeafGeometry,
+    mixTints: true,
+    creek: false,
+    sea: false,
   },
 };
 
@@ -536,20 +563,21 @@ function createNature(
 
   // Wildflowers scattered in loose drifts; no collision, you walk through them.
   if (dress.flowers > 0) {
-    const flowers = new THREE.InstancedMesh(track(dress.shells ? createShellGeometry() : createFlowerGeometry()), propMaterial, dress.flowers);
+    const flowers = new THREE.InstancedMesh(track((dress.detail ?? createFlowerGeometry)()), propMaterial, dress.flowers);
     const tints = dress.flowerTints.map((c) => new THREE.Color(c));
     let n = 0;
     while (n < dress.flowers) {
       // Drift center, then a handful of flowers around it.
       const center = tryPlace(4, WORLD_RADIUS - 2, 0, 0.3);
       if (!center) break;
-      const tint = tints[Math.floor(rand() * tints.length)];
+      let tint = tints[Math.floor(rand() * tints.length)];
       for (let i = 0; i < 12 && n < dress.flowers; i++) {
         const a = rand() * Math.PI * 2;
         const d = Math.sqrt(rand()) * 2.2;
         const x = center.x + Math.cos(a) * d;
         const z = center.z + Math.sin(a) * d;
         if (isReserved(x, z, 0)) continue;
+        if (dress.mixTints) tint = tints[Math.floor(rand() * tints.length)];
         q.setFromAxisAngle(up, rand() * Math.PI);
         flowers.setMatrixAt(n, m.compose(p.set(x, 0, z), q, s.setScalar(0.8 + rand() * 0.6)));
         flowers.setColorAt(n, tint);
