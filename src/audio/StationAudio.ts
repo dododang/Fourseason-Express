@@ -1,5 +1,5 @@
 // Station sound for every season: a looping ambience bed per season, an occasional passing
-// sound (winter gusts, spring raindrops), and footsteps that play exactly on each step.
+// sound (winter gusts, spring raindrops, summer gulls, autumn leaves), and footsteps that play exactly on each step.
 // Between stations the beds crossfade with the same season mix the sky and trees use.
 // Files are built by scripts/build_audio.py from the originals listed in ASSETS.md.
 import { Howl, Howler } from 'howler';
@@ -11,6 +11,7 @@ const BASE = `${import.meta.env.BASE_URL}audio/`;
 const AMBIENCE_VOLUME = 0.68;
 const SPRING_BED = 0.65; // birdsong sits a little lower than the winter wind (about -3.7 dB)
 const SUMMER_BED = 0.8; // waves
+const AUTUMN_BED = 0.6; // wind in the leaves (about -2.5 dB below the summer waves)
 const CREEK_VOLUME = 0.7; // right next to the stream
 const CREEK_FLOOR = 0.35; // share still heard from far away
 const CREEK_REACH = 5; // meters; beyond this the creek fades toward the floor
@@ -31,7 +32,7 @@ const spriteMap = (s: Record<string, number[]>) => s as unknown as SpriteMap;
 
 export type { Surface } from '../scenes/zone';
 import type { Surface } from '../scenes/zone';
-type BedSeason = 'winter' | 'spring' | 'summer';
+type BedSeason = 'winter' | 'spring' | 'summer' | 'autumn';
 /** How much each season is heard, 0..1. Weights should add up to 1. Seasons without sounds yet stay quiet. */
 export type SeasonMix = SeasonWeights;
 
@@ -154,6 +155,13 @@ export class StationAudio {
         occasional: new Occasional(howl('summer/gulls.m4a', spriteMap(sprites.gulls)), spriteMap(sprites.gulls), 0.4, [25, 60]),
         volume: -1,
       },
+      autumn: {
+        ambience: loop('autumn/ambience.m4a'),
+        level: AUTUMN_BED,
+        id: 0,
+        occasional: new Occasional(howl('autumn/rustle.m4a', spriteMap(sprites.rustle)), spriteMap(sprites.rustle), 0.45, [30, 75]),
+        volume: -1,
+      },
     };
     this.creek = loop('spring/creek.m4a');
     this.zipWind = loop('spring/zipwind.m4a');
@@ -164,8 +172,7 @@ export class StationAudio {
       wood: new Steps(howl('winter/wood.m4a', spriteMap(sprites.wood)), spriteMap(sprites.wood), 0.7), // wood is sharper
       grass: new Steps(howl('spring/grass.m4a', spriteMap(sprites.grass)), spriteMap(sprites.grass), 0.8),
       sand: new Steps(howl('summer/sand.m4a', spriteMap(sprites.sand)), spriteMap(sprites.sand), 0.55), // soft underfoot
-      // Placeholder until a dry-leaf recording is chosen: grass steps, a little brighter.
-      leaves: new Steps(howl('spring/grass.m4a', spriteMap(sprites.grass)), spriteMap(sprites.grass), 0.8, 1.12),
+      leaves: new Steps(howl('autumn/leaves.m4a', spriteMap(sprites.leaves)), spriteMap(sprites.leaves), 0.8),
     };
 
     // Go quiet while the tab or app is in the background.

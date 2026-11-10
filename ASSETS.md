@@ -24,6 +24,9 @@
 | 여름 배경음 먼 매미 (`summer/ambience.m4a`) | Cicadas - Cigales - South of France 2 | L.Finck | https://freesound.org/people/L.Finck/sounds/815112/ |
 | 가끔 우는 갈매기 (`summer/gulls.m4a`) | seagull.wav | speakingmusic | https://freesound.org/people/speakingmusic/sounds/586831/ |
 | 모래 발소리 (`summer/sand.m4a`) | Foot steps on sand FF661 | martinimeniscus | https://freesound.org/people/martinimeniscus/sounds/164459/ |
+| 가을 배경음 바람과 나뭇잎 (`autumn/ambience.m4a`) | Soft Wind in the Trees - Leaves rustle | Borgory | https://freesound.org/people/Borgory/sounds/751473/ |
+| 가끔 바람에 구르는 낙엽 (`autumn/rustle.m4a`, 낮은 바람 소리는 걸러 냄) | Autumn wind and dry leaves.wav | Stek59 | https://freesound.org/people/Stek59/sounds/457318/ |
+| 낙엽 발소리 (`autumn/leaves.m4a`) | 01-20 Footsteps, sneakers on dry leaves | SpliceSound | https://freesound.org/people/SpliceSound/sounds/218305/ |
 | 열차 실내 (`train/interior.m4a`, 말소리 없는 앞 55초만) | Steam Train Interior | allh | https://freesound.org/people/allh/sounds/133099/ |
 | 바깥 열차 소리 (`train/rumble.m4a`, 낮은 소리만 남김) | Train passing by | Soundkrampf | https://freesound.org/people/Soundkrampf/sounds/237327/ |
 | 풀 밟는 소리 (`spring/grass.m4a`) | Grassy Footstep 1~4 (Footsteps 팩) | OwlStorm | https://freesound.org/people/OwlStorm/packs/9344/ (151230, 151229, 151228, 151235) |

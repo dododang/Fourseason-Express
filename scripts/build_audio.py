@@ -15,6 +15,10 @@ public/audio/summer/:
   ambience.m4a  seamless loop: small waves on a quiet beach, with cicadas far off
   sand.m4a      sprite of single footsteps on sand
   gulls.m4a     sprite of four gull calls, softened to sound far off, played now and then
+public/audio/autumn/:
+  ambience.m4a  seamless loop: soft wind in the trees, leaves rustling, gusts evened out
+  leaves.m4a    sprite of single footsteps on dry leaves
+  rustle.m4a    sprite of four gusts pushing dry leaves along, played now and then
 public/audio/train/:
   interior.m4a  seamless loop: inside a wooden carriage on the move (voice-free part only)
   rumble.m4a    seamless loop: a passing train, low-passed and evened out to a soft distant rumble
@@ -236,6 +240,14 @@ def lowpass(x: np.ndarray, cutoff: float, order: int = 4) -> np.ndarray:
     return np.fft.irfft(spectrum, n=len(x), axis=0).astype(np.float32)
 
 
+def highpass(x: np.ndarray, cutoff: float, order: int = 4) -> np.ndarray:
+    """Gentle high-pass in the frequency domain (Butterworth-like slope), e.g. to drop mic wind rumble."""
+    spectrum = np.fft.rfft(x, axis=0)
+    f = np.maximum(np.fft.rfftfreq(len(x), 1 / SR), 1e-3)
+    spectrum *= (1 / np.sqrt(1 + (cutoff / f) ** (2 * order)))[:, None]
+    return np.fft.irfft(spectrum, n=len(x), axis=0).astype(np.float32)
+
+
 def build_train_interior() -> None:
     # Only 0-55 s: after that the speech band rises (voices), so it is left out entirely.
     loop_len, overlap = 48.0, 4.0
@@ -305,6 +317,41 @@ def build_zip_wind() -> None:
     print(f'zip wind: {len(loop) / SR:.1f}s')
 
 
+def build_autumn_ambience() -> None:
+    # 30-94 s holds a quiet stretch and two gusts; the gusts are turned down so they swell, not roar.
+    loop_len, overlap = 60.0, 4.0
+    src = seconds(load('751473__borgory__soft-wind-in-the-trees-leaves-rustle.wav'), 30, 30 + loop_len + overlap)
+    src = compress(src, -40, 2, window=0.1)
+    loop = soft_limit(gain_to(seamless_loop(src, loop_len, overlap), -26), -4)
+    save(loop, 'autumn/ambience.m4a', '80k')
+    print(f'autumn ambience: {len(loop) / SR:.1f}s, {rms_db(loop):.1f} dB RMS')
+
+
+def build_leaf_rustle() -> dict:
+    # Most of the recording's energy is wind thumping the mic below 200 Hz; only the leaves are kept.
+    src = highpass(load('457318__stek59__autumn-wind-and-dry-leaves.wav'), 300)
+    windows = [(0.6, 7.0), (20.5, 27.0), (28.5, 33.5), (36.5, 41.5)]  # where the skittering swells
+    clips = [limit_peak(gain_to(fade(seconds(src, a, b), 1.5, 2.5), -30), -8) for a, b in windows]
+    data, offsets = sprite(clips, 0.5, 'rustle')
+    save(data, 'autumn/rustle.m4a', '64k')
+    print(f'leaf rustle: {len(clips)} clips, {len(data) / SR:.1f}s')
+    return offsets
+
+
+def build_leaf_steps() -> dict:
+    # Steady walking part; the eight smoothest crunches (lowest peak-to-RMS, so no twig snaps).
+    src = load('218305__splicesound__01-20-footsteps-sneakers-on-dry-leaves.wav', channels=1)
+    onsets = [26.70, 32.71, 11.13, 29.23, 21.45, 9.69, 25.47, 12.40]
+    clips = []
+    for t in onsets:
+        c = fade(seconds(src, t - 0.02, t + 0.5), 0.005, 0.2)
+        clips.append(c * (10 ** (-6 / 20) / np.max(np.abs(c))))
+    data, offsets = sprite(clips, 0.3, 'leaf')
+    save(data, 'autumn/leaves.m4a', '96k')
+    print(f'leaf steps: {len(clips)} clips, {len(data) / SR:.1f}s')
+    return offsets
+
+
 def remove_click(x: np.ndarray, start: float, end: float) -> np.ndarray:
     """Finds the sharpest jump between start and end (s) and bridges 3 ms around it with a straight line."""
     x = x.copy()
@@ -343,6 +390,7 @@ if __name__ == '__main__':
     build_creek()
     build_zip_wind()
     build_summer_ambience()
+    build_autumn_ambience()
     build_train_interior()
     build_train_rumble()
     sprites = {
@@ -353,6 +401,8 @@ if __name__ == '__main__':
         'grass': build_grass_steps(),
         'sand': build_sand_steps(),
         'gulls': build_gulls(),
+        'leaves': build_leaf_steps(),
+        'rustle': build_leaf_rustle(),
     }
     SPRITES.parent.mkdir(parents=True, exist_ok=True)
     SPRITES.write_text(json.dumps(sprites, indent=2) + '\n', encoding='utf-8')

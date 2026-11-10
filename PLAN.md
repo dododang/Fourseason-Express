@@ -130,7 +130,15 @@ CLAUDE.md가 "무엇을, 왜" 만드는지를 정리한 문서라면, 이 문서
       - 제외: HECKFRICKER 매미 (멀리 차 소리, 에어컨 소리가 섞임)
   - [x] 3-2. 가을역: 마른 풀빛 바닥, 단풍나무, 물든 참나무, 은행나무(좁고 키 큰 노란 나무), 감나무(주황 감이 달림), 녹슨 갈색 덤불, 떨어진 낙엽 900장(한 장마다 색이 다름)
   - [x] 3-2. 노선 겨울 → 봄 → 여름 → 가을 → 겨울 (역 4개, 노선 2,880m). 선로 옆 나무에 단풍나무, 은행나무 추가
-  - [ ] 3-2. 가을 소리: 바람 + 마른 잎 바스락 배경음, 낙엽 밟는 소리 (지금은 풀 발소리를 조금 높여서 임시로 씀, 배경음 없음)
+  - [x] 3-2. 가을 소리: 바람에 나뭇잎이 바스락거리는 배경음(60초 반복, 센 바람은 눌러서 부드럽게), 낙엽 밟는 소리(잔가지 부러지는 걸음은 뺌)
+  - [x] 3-2. 가을 가끔 지나가는 소리: 바람에 마른 잎이 굴러가는 소리 네 가지, 30~75초마다 한 번씩 왼쪽이나 오른쪽에서 (마이크에 부딪힌 낮은 바람 소리는 걸러 냄)
+    - 추가 후보 (모두 CC0 확인, 2026-11-10): ⭐ https://freesound.org/people/Mjeno/sounds/405140/ (숲 바닥에 낙엽이 떨어짐, 적당한 바람, 0:19) / https://freesound.org/people/Mjeno/sounds/405136/ (가까이 떨어지는 낙엽, 0:09) / https://freesound.org/people/Mjeno/sounds/405134/ (연못가 낙엽, 0:20)
+    - 제외: klankbeeld 402369 (길 위를 구르는 낙엽이지만 CC BY, 뒤에 차 소리), Philip_Goddard 도토리 680754 (CC BY-NC, 비행기, 사람 소리), lostphosphene 250380 (CC BY)
+    - 후보 (모두 CC0 확인, 2026-11-10). ⭐ 표시가 추천
+      - 배경음: ⭐ https://freesound.org/people/Anya_Media/sounds/523389/ (가까운 나뭇잎이 바람에 바스락, 멀리 나무 소리, 2:19, 25.6MB) / https://freesound.org/people/Borgory/sounds/751473/ (더 잔잔한 바람, 2:26, 40.3MB)
+      - 가끔 지나가는 소리: ⭐ https://freesound.org/people/Stek59/sounds/457318/ (바람에 마른 잎이 길 위를 굴러감, 0:43, 빗소리 같은 배경이 있을 수 있음) / https://freesound.org/people/giddster/sounds/437356/ (나뭇잎 바스락, 0:08)
+      - 낙엽 발소리: ⭐ https://freesound.org/people/spenceomatic/sounds/119765/ (마른 잎 위 걸음, 0:40, 스테레오) / https://freesound.org/people/SpliceSound/sounds/218305/ (운동화로 마른 잎 밟기, 1:40, 모노, 나뭇가지 소리 섞임)
+      - 제외: InspectorJ 낙엽 발소리 (CC BY, 출처 표시 필요), Akacie "Autumn Forest Wind" (CC BY-NC), Porphyr, GregorQuendel (CC BY)
 - **4단계, 함께 있는 느낌과 공개**: 같은 역 인원 표시부터 시작해서 다른 사람 모습, 인원 제한과 채널 분산, 배포.
 
 ---
