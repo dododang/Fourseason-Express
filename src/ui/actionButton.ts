@@ -17,7 +17,7 @@ const STYLE = `
   font-weight: 600;
   letter-spacing: 0.02em;
   -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
+  touch-action: none;
   opacity: 0;
   transform: translateY(6px);
   pointer-events: none;
@@ -50,7 +50,16 @@ export class ActionButton {
     const press = () => {
       if (this.label) onPress();
     };
-    this.el.addEventListener('click', press);
+    // Act on pointerdown, not click: iOS Safari drops the click for a second finger while the
+    // thumb is still on the joystick, so the button only worked with the stick released.
+    this.el.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      press();
+    });
+    // Keyboard activation (Enter/Space) still arrives as a click with detail 0.
+    this.el.addEventListener('click', (e) => {
+      if (e.detail === 0) press();
+    });
     // Desktop testing: E does the same.
     window.addEventListener('keydown', (e) => {
       if (e.code === 'KeyE' && !e.repeat) press();

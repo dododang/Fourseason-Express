@@ -52,6 +52,8 @@ export class Character {
   onStep: ((foot: 0 | 1) => void) | null = null;
   /** Sitting (in the boat). Place root at the seat top minus FOOT_HEIGHT; the pose blends in. */
   seated = false;
+  /** Pushing something in front (a snowball): both arms reach forward. */
+  pushing = false;
 
   private bodyPivot = new THREE.Group();
   private body = new THREE.Mesh(sphereGeo, shadedMaterial(COAT_COLORS[0].color));
@@ -69,6 +71,7 @@ export class Character {
   private walkPhase = 0;
   private walkBlend = 0;
   private sitBlend = 0;
+  private pushBlend = 0;
   private time = Math.random() * 10;
 
   constructor(look: CharacterLook) {
@@ -186,8 +189,11 @@ export class Character {
     this.headGroup.rotation.z = -s * 0.04 * w;
 
     // Arms swing opposite to the feet.
-    // Seated: hands rest forward on the knees.
-    this.arms[0].rotation.x = -s * 0.6 * w - 0.5 * sit;
-    this.arms[1].rotation.x = s * 0.6 * w - 0.5 * sit;
+    // Seated: hands rest forward on the knees. Pushing: both reach forward, barely swinging.
+    this.pushBlend = THREE.MathUtils.damp(this.pushBlend, this.pushing ? 1 : 0, 8, dt);
+    const push = this.pushBlend;
+    const swing = 0.6 * w * (1 - 0.8 * push);
+    this.arms[0].rotation.x = -s * swing - 0.5 * sit - 1.2 * push;
+    this.arms[1].rotation.x = s * swing - 0.5 * sit - 1.2 * push;
   }
 }

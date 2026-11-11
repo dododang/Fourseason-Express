@@ -15,6 +15,7 @@ import { Backdrop } from './scenes/backdrop';
 import type { Track } from './scenes/lowpoly';
 import { Railway, TRAIN_FLOOR } from './systems/railway';
 import { Footprints } from './systems/footprints';
+import { Snowballs, MAX_RADIUS as SNOWBALL_MAX } from './systems/snowballs';
 import { Snowfall } from './systems/snowfall';
 import { StationAudio } from './audio/StationAudio';
 import { AdaptiveQuality } from './systems/adaptiveQuality';
@@ -49,6 +50,9 @@ const footprints = new Footprints();
 const snowfall = new Snowfall();
 // Prints belong to the winter station's place on the line, so they outlast a reload of its scenery.
 railway.rootOf('winter').add(footprints.mesh);
+// Snowballs and snowmen live there too, so they stay while the station's scenery comes and goes.
+const snowballs = new Snowballs();
+railway.rootOf('winter').add(snowballs.root);
 scene.add(snowfall.points);
 let onBoardTrain = false; // player is inside the car
 
@@ -156,6 +160,23 @@ function nearSign() {
   if (!here || onBoardTrain) return undefined;
   return here.zone.signs.find((sign) => near(here.zone, sign.pos, SIGN_RANGE));
 }
+/** The winter station, while the player stands in it on foot (where snowballs can be rolled). */
+function winterHere(): StationZone | null {
+  if (railway.view !== 'station' || onBoardTrain || inBoat || onZip) return null;
+  const zone = railway.station;
+  return zone.season === 'winter' ? zone : null;
+}
+/** Whether the player stands on snow at the winter station. */
+function onSnow(): boolean {
+  const zone = winterHere();
+  if (!zone) return false;
+  const p = localPos(zone);
+  return zone.surfaceAt(p.x, p.y) === 'snow';
+}
+function snowLabel(): string | null {
+  if (snowballs.holding) return snowballs.stackTarget() ? '올리기' : '내려놓기';
+  return onSnow() ? '눈 굴리기' : null;
+}
 function actionLabel(): string | null {
   if (!boarded || fade.active || onZip) return null;
   if (inBoat) return rides?.boat.stopped ? '내리기' : null;
@@ -164,9 +185,18 @@ function actionLabel(): string | null {
     if (here.zip.canBoard && near(here.zone, here.zone.zipline!.boardSpot, BOARD_RANGE)) return '짚라인 타기';
     if (here.boat.canBoard && near(here.zone, here.boat.pier.stand, BOARD_RANGE)) return '보트 타기';
   }
-  return nearSign()?.label ?? null;
+  return nearSign()?.label ?? snowLabel();
 }
 const actionButton = new ActionButton(() => {
+  const winter = winterHere();
+  if (winter && (snowballs.holding || onSnow())) {
+    const p = localPos(winter);
+    const base = snowballs.stackTarget();
+    if (base) snowballs.stack(base, p.x, p.y);
+    else if (snowballs.holding) snowballs.release();
+    else snowballs.start(p.x, p.y, player.root.rotation.y);
+    return;
+  }
   const here = ridesHere();
   if (!here) return;
   const { zone, boat, zip } = here;
@@ -222,6 +252,26 @@ player.onStep = (foot) => {
     footprints.add(footPos.x - here.root.position.x, footPos.z, player.root.rotation.y);
   }
 };
+
+// The snowball being rolled stays in front of the character. Stepping off the snow (onto the
+// platform or into the train) or leaving the station leaves it lying where it is.
+const ballPos = new THREE.Vector3();
+function updateSnowball(): void {
+  player.pushing = snowballs.holding;
+  if (!snowballs.holding) return;
+  const winter = winterHere();
+  if (!winter || !onSnow()) {
+    snowballs.release();
+    player.pushing = false;
+    return;
+  }
+  const p = localPos(winter);
+  snowballs.carry(p.x, p.y, player.root.rotation.y, true, (q, r) => {
+    winter.constrain(ballPos.set(q.x, 0, q.z), r);
+    q.x = ballPos.x;
+    q.z = ballPos.z;
+  });
+}
 
 // The creek sound comes from the nearest stream: its distance, and which side of the view it is on.
 const creekPoint = new THREE.Vector2();
@@ -355,7 +405,9 @@ renderer.setAnimationLoop(() => {
       moveDir
         .copy(followCam.right(tmpRight).multiplyScalar(x))
         .add(followCam.forward(tmpForward).multiplyScalar(y));
-      player.root.position.addScaledVector(moveDir, WALK_SPEED * dt);
+      // A big snowball is heavier to push: down to 60% speed at full size.
+      const push = 1 - 0.4 * (snowballs.heldRadius / SNOWBALL_MAX);
+      player.root.position.addScaledVector(moveDir, WALK_SPEED * push * dt);
       facing = Math.atan2(moveDir.x, moveDir.z);
     }
 
@@ -379,6 +431,14 @@ renderer.setAnimationLoop(() => {
       if (car >= 0) railway.constrainInside(car, p, PLAYER_RADIUS);
       else railway.station.constrain(p, PLAYER_RADIUS);
       onBoardTrain = railway.isInside(p);
+      const winter = winterHere();
+      if (winter) {
+        // Lying snowballs and snowmen are solid (they live in the station's own coordinates).
+        const ox = winter.root.position.x;
+        p.x -= ox;
+        snowballs.constrain(p, PLAYER_RADIUS);
+        p.x += ox;
+      }
 
       // Step up onto / down from the platform and the car floor smoothly.
       const ground = onBoardTrain ? TRAIN_FLOOR : railway.station.heightAt(p.x, p.z);
@@ -388,6 +448,7 @@ renderer.setAnimationLoop(() => {
     const goal = nearestAngle(player.root.rotation.y, facing);
     const turnRate = inBoat || onZip ? 20 : speed > 0 ? 10 : 3; // riding: turn with the seat
     player.root.rotation.y = THREE.MathUtils.damp(player.root.rotation.y, goal, turnRate, dt);
+    updateSnowball();
     followCam.update(dt, player.root.position);
   }
 
@@ -416,6 +477,7 @@ renderer.setAnimationLoop(() => {
   audio.setTrain(railway.speedRatio, onBoardTrain, railway.nearestCarDistance(player.root.position));
   audio.update(dt);
   footprints.update(dt);
+  snowballs.update(dt);
   for (const st of railway.loaded) st.update?.(dt);
   rides?.boat.update(dt);
   rides?.zip.update(dt);
@@ -455,4 +517,44 @@ if (import.meta.env.DEV && params.has('zip') && boarded && devRidesZip) {
   devRidesZip.zip.debugStart(Number(params.get('zip')) || 0);
   onZip = true;
   player.seated = true;
+}
+// Dev only: ?snowman (with ?board, at the winter station) rolls two balls on the path behind the
+// platform and stacks them, plus one lying ball, to check how they look.
+if (import.meta.env.DEV && params.has('snowman') && boarded) {
+  const free = (q: THREE.Vector3, r: number) => railway.station.constrain(q, r);
+  const roll = (x: number, z: number, yaw: number, meters: number) => {
+    snowballs.start(x, z, yaw);
+    for (let d = 0; d < meters; d += 0.05) {
+      x += Math.sin(yaw) * 0.05;
+      z += Math.cos(yaw) * 0.05;
+      snowballs.carry(x, z, yaw, true, free);
+    }
+    return { x, z };
+  };
+  roll(0, -2.5, Math.PI, 9); // body: about 0.44 m, lying near (0, -12.2)
+  snowballs.release();
+  const at = roll(3.5, -12.24, -Math.PI / 2, 2.5); // head: about 0.25 m, rolled up against the body
+  const base = snowballs.stackTarget();
+  if (base) snowballs.stack(base, at.x + 1, at.z + 3);
+  else snowballs.release();
+  roll(3, -4, Math.PI, 4); // a lone ball, lying
+  snowballs.release();
+  // ?holdball: stand on the snow pushing a full-size ball, to check it doesn't block the view.
+  if (params.has('holdball')) {
+    // Back and forth across the village until the ball is full size, then face away from the train.
+    let x = -12;
+    const z = -25;
+    snowballs.start(x, z, Math.PI / 2);
+    for (let leg = 0; leg < 3; leg++) {
+      const dir = leg % 2 ? -1 : 1;
+      for (let d = 0; d < 24; d += 0.05) {
+        x += dir * 0.05;
+        snowballs.carry(x, z, (dir * Math.PI) / 2, true, free);
+      }
+    }
+    player.root.position.set(x, 0, z);
+    facing = Math.PI;
+    player.root.rotation.y = facing;
+    followCam.snap(player.root.position, facing);
+  }
 }
