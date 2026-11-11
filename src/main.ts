@@ -256,8 +256,11 @@ player.onStep = (foot) => {
 // The snowball being rolled stays in front of the character. Stepping off the snow (onto the
 // platform or into the train) or leaving the station leaves it lying where it is.
 const ballPos = new THREE.Vector3();
-function updateSnowball(): void {
+function updateSnowball(dt: number): void {
   player.pushing = snowballs.holding;
+  // The rolling crunch follows how fast the ball actually moves (zero against a wall).
+  const rollSpeed = snowballs.consumeRolled() / dt / WALK_SPEED;
+  audio.setRolling(snowballs.holding ? Math.min(1, rollSpeed) : 0, snowballs.heldRadius / SNOWBALL_MAX);
   if (!snowballs.holding) return;
   const winter = winterHere();
   if (!winter || !onSnow()) {
@@ -448,7 +451,7 @@ renderer.setAnimationLoop(() => {
     const goal = nearestAngle(player.root.rotation.y, facing);
     const turnRate = inBoat || onZip ? 20 : speed > 0 ? 10 : 3; // riding: turn with the seat
     player.root.rotation.y = THREE.MathUtils.damp(player.root.rotation.y, goal, turnRate, dt);
-    updateSnowball();
+    updateSnowball(dt);
     followCam.update(dt, player.root.position);
   }
 
@@ -539,6 +542,19 @@ if (import.meta.env.DEV && params.has('snowman') && boarded) {
   else snowballs.release();
   roll(3, -4, Math.PI, 4); // a lone ball, lying
   snowballs.release();
+  // A ball rolled along an S-curve in the open snow, to check the trail bends without breaking.
+  {
+    let x = -16;
+    let z = -16;
+    snowballs.start(x, z, Math.PI);
+    for (let d = 0; d < 14; d += 0.05) {
+      const yaw = Math.PI + 1.1 * Math.sin(d * 0.45);
+      x += Math.sin(yaw) * 0.05;
+      z += Math.cos(yaw) * 0.05;
+      snowballs.carry(x, z, yaw, true, free);
+    }
+    snowballs.release();
+  }
   // ?holdball: stand on the snow pushing a full-size ball, to check it doesn't block the view.
   if (params.has('holdball')) {
     // Back and forth across the village until the ball is full size, then face away from the train.

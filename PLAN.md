@@ -140,8 +140,10 @@ CLAUDE.md가 "무엇을, 왜" 만드는지를 정리한 문서라면, 이 문서
       - 낙엽 발소리: ⭐ https://freesound.org/people/spenceomatic/sounds/119765/ (마른 잎 위 걸음, 0:40, 스테레오) / https://freesound.org/people/SpliceSound/sounds/218305/ (운동화로 마른 잎 밟기, 1:40, 모노, 나뭇가지 소리 섞임)
       - 제외: InspectorJ 낙엽 발소리 (CC BY, 출처 표시 필요), Akacie "Autumn Forest Wind" (CC BY-NC), Porphyr, GregorQuendel (CC BY)
   - [x] 3-3. 겨울 눈사람 (`src/systems/snowballs.ts`): 눈밭에서 "눈 굴리기"를 누르면 앞에 작은 눈덩이가 생기고, 걸으면 굴러가며 커진다(반지름 0.12m에서 최대 0.75m, 약 40m 굴리면 최대, 클수록 천천히 커지고 미는 걸음도 느려짐). "내려놓기"로 두고, 누워 있는 눈덩이 옆에서 다시 "눈 굴리기"로 이어 굴린다. 같거나 작은 눈덩이를 다른 눈덩이 옆에 대고 "올리기"를 누르면 눈, 당근 코, 웃는 입, 나뭇가지 팔이 붙은 눈사람이 된다(나를 바라봄). 눈덩이 12개를 돌려쓰고 오래된 것부터 사라짐. 플랫폼이나 열차로 올라가면 눈덩이는 그 자리에 남는다
-    - 확인용: `?board&snowman` (눈사람 하나와 눈덩이 하나를 미리 만들어 둠), `&holdball` (최대 크기 눈덩이를 미는 중)
-    - 나중에: 눈 굴리는 소리, 굴러간 자리 자국
+    - 확인용: `?board&snowman` (눈사람 하나, 눈덩이 하나, S자로 굴린 눈덩이 하나를 미리 만들어 둠), `&holdball` (최대 크기 눈덩이를 미는 중)
+    - 굴러간 자리 자국: 눈덩이 폭에 맞춘 연한 띠가 끊기지 않는 리본으로 이어짐(20cm 마디, 꺾이는 곳은 마디끼리 맞붙음). 40초 뒤 30초에 걸쳐 사라짐 (마디 240개, 약 48m)
+    - 눈 굴리는 소리 (`winter/roll.m4a`): ⭐ https://freesound.org/people/MirandaER/sounds/793518/ (눈사람용 큰 눈덩이를 굴리며 녹음, 1:20, 모노). 44.5~60.5초 구간을 110Hz~4.5kHz로 거르고 튀는 소리를 눌러 14초 반복음으로 만듦. 미는 속도만큼 커지고, 큰 공일수록 크고 낮게 들림
+      - 다른 후보: https://freesound.org/people/el_boss/sounds/751706/ (공이 눈 위를 구름, 0:14, 스티로폼 같을 수 있음) / https://freesound.org/people/ThePixelatedEclipse/sounds/789467/ (언 눈덩이, 단단한 소리) / https://freesound.org/people/pflanigan/sounds/390246/ (눈 끼익 소리, 음질 낮음)
 - **4단계, 함께 있는 느낌과 공개**: 같은 역 인원 표시부터 시작해서 다른 사람 모습, 인원 제한과 채널 분산, 배포.
 
 ---

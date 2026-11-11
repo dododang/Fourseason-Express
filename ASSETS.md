@@ -16,6 +16,7 @@
 | 배경음 겨울 숲 (`winter/ambience.m4a`) | outdoor winter ambience birds light wind trees | lwdickens | https://freesound.org/people/lwdickens/sounds/260634/ |
 | 나무 플랫폼 발소리 (`winter/wood.m4a`) | Hiking Boot Footsteps on Wooden Planks | Fission9 | https://freesound.org/people/Fission9/sounds/521589/ |
 | 가끔 스치는 바람 (`winter/gusts.m4a`) | Howling Wind Ambience | DBlover | https://freesound.org/people/DBlover/sounds/405601/ |
+| 눈덩이 굴리는 소리 (`winter/roll.m4a`, 고음 잡음과 웅웅거림은 걸러 냄) | Snow creaks while rolling | MirandaER | https://freesound.org/people/MirandaER/sounds/793518/ |
 | 시냇물 소리 (`spring/creek.m4a`) | Creek 06 (loop) | VKProduktion | https://freesound.org/people/VKProduktion/sounds/231536/ |
 | 봄 배경음 새소리 (`spring/ambience.m4a`) | Birds Singing Dawn Chorus | SamsterBirdies | https://freesound.org/people/SamsterBirdies/sounds/578523/ |
 | 봄 가끔 빗방울 (`spring/rain.m4a`) | Soft rain drops | brunoauzet | https://freesound.org/s/664162/ |

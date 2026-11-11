@@ -5,6 +5,7 @@ Outputs, public/audio/winter/:
   gusts.m4a     sprite of four passing gusts, played now and then at runtime
   steps.m4a     sprite of single footsteps in fresh snow
   wood.m4a      sprite of single footsteps on the wooden platform
+  roll.m4a      seamless loop: a snowball rolled through creaky snow (level follows its speed)
 public/audio/spring/:
   ambience.m4a  seamless loop: a dawn bird chorus
   creek.m4a     seamless loop: the stream, louder the closer you are
@@ -317,6 +318,23 @@ def build_zip_wind() -> None:
     print(f'zip wind: {len(loop) / SR:.1f}s')
 
 
+def build_snow_roll() -> None:
+    # A big snowball rolled through creaky snow. The raw take alternates loud low creaks with a hiss
+    # above 6 kHz, so: keep 110 Hz-4.5 kHz, even out the creaks, then lay the seamless loop over a
+    # copy of itself shifted by a third (both periodic, so no seam) to fill the gaps between creaks
+    # and make one steady crunch. Level and pitch follow the ball's speed and size at runtime.
+    loop_len, overlap = 14.0, 2.0
+    src = load('793518__mirandaer__snow-creaks-while-rolling.m4a', channels=1)
+    src = seconds(src, 44.5, 44.5 + loop_len + overlap)
+    src = compress(lowpass(highpass(src, 110), 4500, order=3), -34, 4, window=0.05)
+    loop = seamless_loop(src, loop_len, overlap)
+    loop = 0.5 * (loop + np.roll(loop, len(loop) // 3, axis=0))  # a third: half would repeat every 7 s
+    loop = compress(loop, -32, 3, window=0.05)
+    loop = soft_limit(gain_to(loop, -20), -6)
+    save(loop, 'winter/roll.m4a', '64k')
+    print(f'snow roll: {len(loop) / SR:.1f}s')
+
+
 def build_autumn_ambience() -> None:
     # 30-94 s holds a quiet stretch and two gusts; the gusts are turned down so they swell, not roar.
     loop_len, overlap = 60.0, 4.0
@@ -393,6 +411,7 @@ if __name__ == '__main__':
     build_autumn_ambience()
     build_train_interior()
     build_train_rumble()
+    build_snow_roll()
     sprites = {
         'gusts': build_gusts(),
         'steps': build_steps(),

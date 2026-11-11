@@ -19,6 +19,14 @@ const STACK_REACH = 0.45; // m of air allowed between the two balls when stackin
 const RESUME_REACH = 0.55; // m from a lying ball's surface to pick it up and roll on
 const STACK_RATIO = 1; // the bottom ball must be at least as big as the one lifted onto it
 
+// The trail a rolled ball presses into the snow: a ribbon of short segments, reused oldest-first
+// and faded out like the footprints, only slower.
+const MAX_TRAIL = 240; // segments; at TRAIL_STEP spacing about 48 m of trail
+const TRAIL_STEP = 0.2; // m rolled per segment
+const TRAIL_WIDTH = 0.8; // × ball radius; the flattened band is narrower than the ball
+const TRAIL_HOLD = 40; // s fully visible
+const TRAIL_FADE = 30; // s, then fades away
+
 interface Ball {
   x: number;
   z: number;
@@ -116,6 +124,152 @@ function createArmsGeometry(): THREE.BufferGeometry {
   return merge(parts);
 }
 
+/** Alpha across the band: soft at both edges, solid along its length so strips join seamlessly. */
+function createTrailTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 4;
+  const ctx = canvas.getContext('2d')!;
+  const grad = ctx.createLinearGradient(0, 0, 64, 0);
+  // alphaMap reads the green channel, so paint an opaque gray ramp (transparent white would
+  // upload as solid white wherever alpha > 0 and give the band hard edges).
+  grad.addColorStop(0, '#000');
+  grad.addColorStop(0.35, '#ccc');
+  grad.addColorStop(0.5, '#fff');
+  grad.addColorStop(0.65, '#ccc');
+  grad.addColorStop(1, '#000');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 64, 4);
+  return new THREE.CanvasTexture(canvas);
+}
+
+/**
+ * One continuous ribbon per run of rolling. Each segment is a quad from the last mark to the ball;
+ * a new segment shares its start edge with the previous segment's end edge (a mitred joint), so
+ * the band bends with the path instead of breaking into separate strips.
+ */
+class Trail {
+  readonly mesh: THREE.Mesh;
+  private ages = new Float32Array(MAX_TRAIL).fill(Infinity);
+  private pos: THREE.BufferAttribute;
+  private fade: THREE.BufferAttribute;
+  private next = 0;
+  private prev = -1; // segment the next one continues from, -1 at the start of a run
+  private last = { x: 0, z: 0 };
+  private lastNormal = { x: 0, z: 0 };
+  private texture = createTrailTexture();
+
+  constructor() {
+    // Four vertices per segment: start left/right, end left/right.
+    const geo = new THREE.BufferGeometry();
+    this.pos = new THREE.BufferAttribute(new Float32Array(MAX_TRAIL * 4 * 3), 3);
+    this.pos.setUsage(THREE.DynamicDrawUsage);
+    this.fade = new THREE.BufferAttribute(new Float32Array(MAX_TRAIL * 4), 1);
+    this.fade.setUsage(THREE.DynamicDrawUsage);
+    const uv = new Float32Array(MAX_TRAIL * 4 * 2);
+    const index: number[] = [];
+    for (let i = 0; i < MAX_TRAIL; i++) {
+      uv.set([0, 0, 1, 0, 0, 1, 1, 1], i * 8); // u runs across the band
+      const v = i * 4;
+      index.push(v, v + 2, v + 1, v + 1, v + 2, v + 3);
+    }
+    geo.setAttribute('position', this.pos);
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    geo.setAttribute('aFade', this.fade);
+    geo.setIndex(index);
+
+    const mat = new THREE.MeshBasicMaterial({
+      color: '#9fadbf', // same pressed-snow tint as the footprints
+      alphaMap: this.texture,
+      transparent: true,
+      opacity: 0.28,
+      depthWrite: false,
+      side: THREE.DoubleSide, // winding flips with the turn direction at tight joints
+    });
+    mat.onBeforeCompile = (shader) => {
+      shader.vertexShader =
+        'attribute float aFade;\nvarying float vFade;\n' +
+        shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvFade = aFade;');
+      shader.fragmentShader =
+        'varying float vFade;\n' +
+        shader.fragmentShader.replace(
+          '#include <dithering_fragment>',
+          '#include <dithering_fragment>\ngl_FragColor.a *= vFade;',
+        );
+    };
+    this.mesh = new THREE.Mesh(geo, mat);
+    this.mesh.frustumCulled = false; // the ribbon spreads around the station
+    this.mesh.renderOrder = 1;
+  }
+
+  /** Starts a new run of trail at the ball's position (nothing is drawn until it moves). */
+  begin(x: number, z: number): void {
+    this.last.x = x;
+    this.last.z = z;
+    this.prev = -1;
+  }
+
+  /** The ball is now at (x, z): adds a segment back to the last mark once it has rolled far enough. */
+  roll(x: number, z: number, r: number): void {
+    const dx = x - this.last.x;
+    const dz = z - this.last.z;
+    const len = Math.hypot(dx, dz);
+    if (len < TRAIL_STEP) return;
+    if (len > TRAIL_STEP * 4) {
+      // A jump (pushed out of something): start over instead of drawing a long streak.
+      this.begin(x, z);
+      return;
+    }
+    const half = r * TRAIL_WIDTH;
+    const nx = -dz / len;
+    const nz = dx / len;
+    const i = this.next;
+    this.next = (this.next + 1) % MAX_TRAIL;
+    const p = this.pos.array as Float32Array;
+    const y = 0.01;
+
+    if (this.prev >= 0) {
+      // Mitre the joint: both segments meet on the line halfway between their directions.
+      let mx = this.lastNormal.x + nx;
+      let mz = this.lastNormal.z + nz;
+      const ml = Math.hypot(mx, mz) || 1;
+      mx /= ml;
+      mz /= ml;
+      const k = half / Math.max(0.5, mx * nx + mz * nz); // never wider than 2× on sharp turns
+      const o = this.prev * 12 + 6; // previous segment's end edge
+      p.set([this.last.x + mx * k, y, this.last.z + mz * k, this.last.x - mx * k, y, this.last.z - mz * k], o);
+      p.copyWithin(i * 12, o, o + 6); // this segment starts on the same edge
+    } else {
+      p.set([this.last.x + nx * half, y, this.last.z + nz * half, this.last.x - nx * half, y, this.last.z - nz * half], i * 12);
+    }
+    p.set([x + nx * half, y, z + nz * half, x - nx * half, y, z - nz * half], i * 12 + 6);
+    this.pos.needsUpdate = true;
+    this.ages[i] = 0;
+
+    this.prev = i;
+    this.lastNormal.x = nx;
+    this.lastNormal.z = nz;
+    this.last.x = x;
+    this.last.z = z;
+  }
+
+  update(dt: number): void {
+    const arr = this.fade.array as Float32Array;
+    for (let i = 0; i < MAX_TRAIL; i++) {
+      const age = (this.ages[i] += dt);
+      const f = age < TRAIL_HOLD ? 1 : Math.max(0, 1 - (age - TRAIL_HOLD) / TRAIL_FADE);
+      arr[i * 4] = arr[i * 4 + 1] = arr[i * 4 + 2] = arr[i * 4 + 3] = f;
+    }
+    this.fade.needsUpdate = true;
+  }
+
+  dispose(): void {
+    this.mesh.geometry.dispose();
+    (this.mesh.material as THREE.Material).dispose();
+    this.texture.dispose();
+  }
+}
+
 export class Snowballs {
   readonly root = new THREE.Group();
   private balls: Ball[] = [];
@@ -123,8 +277,10 @@ export class Snowballs {
   private ballMesh: THREE.InstancedMesh;
   private faceMesh: THREE.InstancedMesh;
   private armMesh: THREE.InstancedMesh;
+  private trail = new Trail();
   private disposables: { dispose: () => void }[] = [];
   private clock = 0;
+  private rolled = 0; // m the held ball has moved since the last consumeRolled()
   private dirty = true;
   private m = new THREE.Matrix4();
   private hidden = new THREE.Matrix4().makeScale(0, 0, 0);
@@ -149,6 +305,8 @@ export class Snowballs {
       this.root.add(mesh);
       this.disposables.push(mesh);
     }
+    this.root.add(this.trail.mesh);
+    this.disposables.push(this.trail);
     for (let i = 0; i < MAX_BALLS; i++) {
       this.balls.push({
         x: 0, z: 0, y: 0, r: 0, rot: new THREE.Quaternion(),
@@ -164,6 +322,13 @@ export class Snowballs {
   /** Radius of the ball being rolled, 0 when none. */
   get heldRadius(): number {
     return this.held?.r ?? 0;
+  }
+
+  /** Meters the held ball rolled since the last call (for the rolling sound). */
+  consumeRolled(): number {
+    const d = this.rolled;
+    this.rolled = 0;
+    return d;
   }
 
   /** Starts rolling: picks up a lying ball within reach, or makes a fresh one in front of you. */
@@ -182,6 +347,7 @@ export class Snowballs {
       this.held = ball;
     }
     this.held.born = this.clock;
+    this.trail.begin(this.held.x, this.held.z);
     this.dirty = true;
   }
 
@@ -202,10 +368,13 @@ export class Snowballs {
     if (dist < 1e-5) return;
     ball.x = p.x;
     ball.z = p.z;
+    this.rolled += dist;
     // Roll: turn about the horizontal axis across the motion, by arc length / radius.
     this.axis.set(dz, 0, -dx).normalize();
     ball.rot.premultiply(this.q.setFromAxisAngle(this.axis, dist / ball.r));
     if (onSnow && ball.r < MAX_RADIUS) ball.r = Math.min(MAX_RADIUS, Math.sqrt(ball.r * ball.r + GROW * dist));
+    if (onSnow) this.trail.roll(ball.x, ball.z, ball.r);
+    else this.trail.begin(ball.x, ball.z);
     ball.y = ball.r * SINK;
     this.dirty = true;
   }
@@ -262,6 +431,7 @@ export class Snowballs {
 
   update(dt: number): void {
     this.clock += dt;
+    this.trail.update(dt);
     if (!this.dirty) return;
     this.dirty = false;
     const hidden = this.hidden;

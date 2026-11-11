@@ -20,6 +20,8 @@ const ZIP_WIND_RESPONSE = 4; // how quickly the wind follows the speed (1/s)
 const TRAIN_INTERIOR_VOLUME = 1.0; // riding at cruising speed
 const TRAIN_RUMBLE_VOLUME = 1.0; // a moving train right beside you
 const TRAIN_RUMBLE_REACH = 12; // m; farther away the rumble fades out
+const ROLL_VOLUME = 0.54; // snowball crunch at full walking speed with a full-size ball
+const ROLL_RESPONSE = 8; // how quickly the crunch follows the ball's speed (1/s)
 const STEP_VOLUME = 0.48;
 const INSIDE_OPEN = 0.6; // outside sound level inside the car with the doors open
 const INSIDE_CLOSED = 0.15; // ... and with the doors shut
@@ -119,6 +121,12 @@ export class StationAudio {
   private trainRumble: Howl;
   private trainRumbleId = 0;
   private train = { speed: 0, inside: false, distance: Infinity };
+  private roll: Howl;
+  private rollId = 0;
+  private rollTarget = 0; // 0..1 ball speed
+  private rollLevel = 0; // smoothed
+  private rollSize = 0; // 0..1 ball radius / max
+  private rollSet = -1;
   private trainSet = { interior: -1, rumble: -1 };
 
   constructor() {
@@ -167,6 +175,7 @@ export class StationAudio {
     this.zipWind = loop('spring/zipwind.m4a');
     this.trainInterior = loop('train/interior.m4a');
     this.trainRumble = loop('train/rumble.m4a');
+    this.roll = loop('winter/roll.m4a');
     this.steps = {
       snow: new Steps(howl('winter/steps.m4a', spriteMap(sprites.steps)), spriteMap(sprites.steps), 1),
       wood: new Steps(howl('winter/wood.m4a', spriteMap(sprites.wood)), spriteMap(sprites.wood), 0.7), // wood is sharper
@@ -188,6 +197,7 @@ export class StationAudio {
     this.zipWindId = this.zipWind.play();
     this.trainInteriorId = this.trainInterior.play();
     this.trainRumbleId = this.trainRumble.play();
+    this.rollId = this.roll.play();
   }
 
   /** Inside the train car the outside is muffled: a little with the doors open (0..1), a lot once shut. */
@@ -222,6 +232,12 @@ export class StationAudio {
   /** Zipline speed, 0 (still or not riding) .. 1 (full speed): wind past the ears follows it. */
   setZipSpeed(ratio: number): void {
     this.zipTarget = ratio;
+  }
+
+  /** Snowball being rolled: speed 0..1 (of walking speed) and size 0..1 (of the largest ball). */
+  setRolling(speed: number, size: number): void {
+    this.rollTarget = speed;
+    this.rollSize = size;
   }
 
   /** One footstep. `speed` is 0..1 from the joystick, so a gentle push sounds softer. */
@@ -285,6 +301,20 @@ export class StationAudio {
       this.zipWind.volume(zipVolume, this.zipWindId);
       this.zipWind.rate(0.85 + 0.35 * this.zipLevel, this.zipWindId);
       this.zipSet = zipVolume;
+    }
+
+    this.updateRoll(dt);
+  }
+
+  private updateRoll(dt: number): void {
+    // A bigger ball crunches louder and lower.
+    this.rollLevel += (this.rollTarget - this.rollLevel) * (1 - Math.exp(-ROLL_RESPONSE * dt));
+    const size = this.rollSize;
+    const volume = ROLL_VOLUME * this.rollLevel * (0.55 + 0.45 * size) * this.startLevel;
+    if (Math.abs(volume - this.rollSet) > 0.002) {
+      this.roll.volume(volume, this.rollId);
+      this.roll.rate((1.1 - 0.25 * size) * (0.9 + 0.1 * this.rollLevel), this.rollId);
+      this.rollSet = volume;
     }
   }
 
